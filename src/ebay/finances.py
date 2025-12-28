@@ -230,6 +230,17 @@ class FinancesClient:
                 order_id = ref.get("referenceId")
                 break
 
+        # Debug: log all available fields at transaction level (first tx only)
+        if data.get("transactionType") == "SALE":
+            logger.debug(f"SALE transaction keys: {list(data.keys())}")
+            # Check for buyer info that might have item title
+            if "buyer" in data:
+                logger.debug(f"buyer: {data['buyer']}")
+            # Check for any other useful fields
+            for key in ["bookingEntry", "transactionMemo", "paymentsEntity", "salesRecordReference"]:
+                if key in data:
+                    logger.debug(f"{key}: {data[key]}")
+
         # Get item ID and title from order line items
         item_id = None
         item_title = None
@@ -238,10 +249,9 @@ class FinancesClient:
             first_item = line_items[0]
             item_id = first_item.get("itemId")
             item_title = first_item.get("title")
-            # Debug: log available fields in orderLineItems
-            logger.debug(f"orderLineItems[0] keys: {list(first_item.keys())}")
-            if not item_title:
-                logger.debug(f"No title in orderLineItems, full item: {first_item}")
+            # Try lineItemId as fallback for item_id
+            if not item_id:
+                item_id = first_item.get("lineItemId")
 
         return Transaction(
             transaction_id=data.get("transactionId", ""),
