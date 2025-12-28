@@ -12,7 +12,11 @@
       "Bash(gh secret:*)",
       "Bash(gh workflow run:*)",
       "Bash(gh run:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(python -m src.main:*)",
+      "Bash(pip install:*)",
+      "Bash(where:*)",
+      "Bash(\"C:\\Users\\monst\\miniconda3\\python.exe\" -m src.main)"
     ]
   }
 }

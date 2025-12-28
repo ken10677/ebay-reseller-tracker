@@ -305,6 +305,7 @@ def main() -> int:
     # Step 4c: Apply promoted listing fees from NON_SALE_CHARGE transactions
     if non_sale_charges:
         logger.info(f"Processing {len(non_sale_charges)} promoted listing fee transactions...")
+        logger.info(f"Item keys in items_to_sync: {list(items_to_sync.keys())[:5]}...")
         ad_fees_applied = 0
 
         for tx in non_sale_charges:
@@ -316,8 +317,8 @@ def main() -> int:
             ad_fee_amount = abs(tx.amount.value)
 
             # Log details for debugging
-            logger.debug(f"Ad fee: ${ad_fee_amount} for item={item_id} order={order_id}")
-            logger.debug(f"  Description: {tx.description}")
+            logger.info(f"Ad fee: ${ad_fee_amount} for item_id={item_id} order_id={order_id}")
+            logger.info(f"  Description: {tx.description}")
 
             # Try to find the item to apply this fee to
             target_item = None
@@ -340,9 +341,9 @@ def main() -> int:
                 target_item.promoted_listing_fee = current_fee + ad_fee_amount
                 target_item.promoted_listing = True
                 ad_fees_applied += 1
-                logger.debug(f"  Applied to item {target_item.item_id}: ${ad_fee_amount}")
+                logger.info(f"  -> Applied ${ad_fee_amount} to item {target_item.item_id}")
             else:
-                logger.debug(f"  Could not match ad fee to any item")
+                logger.info(f"  -> Could not match to any item")
 
         logger.info(f"Applied {ad_fees_applied} promoted listing fees to items")
 
