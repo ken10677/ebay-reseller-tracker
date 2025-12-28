@@ -12,8 +12,23 @@ from pydantic import BaseModel, Field, field_validator
 class Config(BaseModel):
     """Application configuration loaded from environment variables."""
 
-    # eBay API
-    ebay_user_token: str = Field(..., description="eBay OAuth 2.0 User Token")
+    # eBay API - User Token (short-lived, 2 hours)
+    ebay_user_token: Optional[str] = Field(
+        None, description="eBay OAuth 2.0 User Token (optional if using refresh token)"
+    )
+
+    # eBay API - Refresh Token (long-lived, 18 months) - RECOMMENDED
+    ebay_refresh_token: Optional[str] = Field(
+        None, description="eBay OAuth 2.0 Refresh Token for auto-renewal"
+    )
+    ebay_client_id: Optional[str] = Field(
+        None, description="eBay App Client ID (required for token refresh)"
+    )
+    ebay_client_secret: Optional[str] = Field(
+        None, description="eBay App Client Secret (required for token refresh)"
+    )
+
+    # eBay Trading API (legacy)
     ebay_trading_token: Optional[str] = Field(
         None, description="eBay Trading API token (optional, for legacy API)"
     )
@@ -76,14 +91,26 @@ class Config(BaseModel):
         else:
             load_dotenv()
 
-        # Get required values
-        ebay_token = os.getenv("EBAY_USER_TOKEN")
-        if not ebay_token:
-            raise ValueError("EBAY_USER_TOKEN environment variable is required")
+        # Check for eBay credentials - need either user token OR refresh token setup
+        ebay_user_token = os.getenv("EBAY_USER_TOKEN")
+        ebay_refresh_token = os.getenv("EBAY_REFRESH_TOKEN")
+        ebay_client_id = os.getenv("EBAY_CLIENT_ID")
+        ebay_client_secret = os.getenv("EBAY_CLIENT_SECRET")
 
-        # Get optional values with defaults
+        has_refresh_setup = all([ebay_refresh_token, ebay_client_id, ebay_client_secret])
+
+        if not ebay_user_token and not has_refresh_setup:
+            raise ValueError(
+                "eBay credentials required. Provide either:\n"
+                "  - EBAY_USER_TOKEN (expires in 2 hours), or\n"
+                "  - EBAY_REFRESH_TOKEN + EBAY_CLIENT_ID + EBAY_CLIENT_SECRET (recommended, auto-refreshes)"
+            )
+
         return cls(
-            ebay_user_token=ebay_token,
+            ebay_user_token=ebay_user_token,
+            ebay_refresh_token=ebay_refresh_token,
+            ebay_client_id=ebay_client_id,
+            ebay_client_secret=ebay_client_secret,
             ebay_trading_token=os.getenv("EBAY_TRADING_TOKEN"),
             google_credentials_path=os.getenv("GOOGLE_CREDENTIALS_PATH"),
             google_credentials_json=os.getenv("GOOGLE_CREDENTIALS_JSON"),
@@ -101,3 +128,7 @@ class Config(BaseModel):
     def has_trading_api(self) -> bool:
         """Check if Trading API access is configured."""
         return bool(self.ebay_trading_token)
+
+    def can_auto_refresh(self) -> bool:
+        """Check if automatic token refresh is configured."""
+        return all([self.ebay_refresh_token, self.ebay_client_id, self.ebay_client_secret])

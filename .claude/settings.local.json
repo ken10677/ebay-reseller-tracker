@@ -3,7 +3,11 @@
     "allow": [
       "Bash(dir:*)",
       "Bash(git init:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nInitial commit: eBay Reseller Tracker\n\nComplete Python system for tracking eBay reselling profitability:\n- eBay API clients (Finances, Fulfillment, Inventory, Trading)\n- Google Sheets integration with auto-calculated dashboard\n- GitHub Actions for daily automated sync\n- Comprehensive test suite\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(gh repo create:*)",
+      "Bash(echo:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nAdd automatic eBay OAuth token refresh\n\n- Tokens now auto-refresh using refresh_token (lasts 18 months)\n- No more manual token renewal every 2 hours!\n- Added new secrets: EBAY_REFRESH_TOKEN, EBAY_CLIENT_ID, EBAY_CLIENT_SECRET\n- Falls back to EBAY_USER_TOKEN if refresh not configured\n- Updated GitHub Actions workflow with new env vars\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
     ]
   }
 }

@@ -49,14 +49,25 @@ def main() -> int:
     logger.info("Initializing eBay API clients...")
     auth = EbayAuth(
         user_token=config.ebay_user_token,
+        refresh_token=config.ebay_refresh_token,
+        client_id=config.ebay_client_id,
+        client_secret=config.ebay_client_secret,
         trading_token=config.ebay_trading_token,
     )
 
-    # Validate token
-    if not auth.validate_token():
-        logger.error("eBay token validation failed!")
-        logger.error("Please refresh your eBay OAuth token.")
-        return 1
+    # Check auth mode and validate/refresh token
+    if auth.can_auto_refresh():
+        logger.info("Auto-refresh enabled - getting fresh token...")
+        if not auth.ensure_valid_token():
+            logger.error("Failed to obtain valid eBay token!")
+            logger.error("Check your EBAY_REFRESH_TOKEN, EBAY_CLIENT_ID, and EBAY_CLIENT_SECRET")
+            return 1
+    else:
+        logger.info("Using provided user token (no auto-refresh)")
+        if not auth.validate_token():
+            logger.error("eBay token validation failed!")
+            logger.error("Please refresh your eBay OAuth token, or set up auto-refresh.")
+            return 1
 
     finances = FinancesClient(auth)
     fulfillment = FulfillmentClient(auth)

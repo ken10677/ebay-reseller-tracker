@@ -35,10 +35,18 @@ jobs:
 
       - name: Run sync
         env:
+          # eBay OAuth - Auto-refresh (recommended)
+          EBAY_REFRESH_TOKEN: ${{ secrets.EBAY_REFRESH_TOKEN }}
+          EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
+          EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
+          # eBay OAuth - Manual token (fallback if refresh not configured)
           EBAY_USER_TOKEN: ${{ secrets.EBAY_USER_TOKEN }}
+          # eBay Trading API (optional)
           EBAY_TRADING_TOKEN: ${{ secrets.EBAY_TRADING_TOKEN }}
+          # Google Sheets
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          # Settings
           TIMEZONE: 'America/New_York'
           SYNC_START_DATE: '2025-11-01'
           LOG_LEVEL: ${{ github.event.inputs.debug == 'true' && 'DEBUG' || 'INFO' }}
