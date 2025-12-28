@@ -76,12 +76,20 @@ class FulfillmentClient:
             raise requests.HTTPError("eBay token expired or invalid", response=response)
 
         if response.status_code == 403:
-            logger.error(f"Access denied (403) - token may lack required scopes")
-            logger.error(f"Response: {response.text[:500]}")
-            raise requests.HTTPError("eBay access denied - missing API scopes", response=response)
+            logger.error(f"Access denied (403) - token lacks required scopes")
+            logger.error(f"Required scope: https://api.ebay.com/oauth/api_scope/sell.fulfillment")
+            raise requests.HTTPError("eBay access denied - missing sell.fulfillment scope", response=response)
+
+        if response.status_code == 404:
+            # 404 can also mean access denied for this API
+            error_text = response.text[:500]
+            if "Resource not found" in error_text:
+                logger.warning(f"Fulfillment API returned 404 - token may lack sell.fulfillment scope")
+                logger.warning("Item titles will not be available. Consider getting OAuth token with proper scopes.")
+            logger.debug(f"HTTP 404: {error_text}")
 
         if not response.ok:
-            logger.error(f"HTTP {response.status_code}: {response.text[:500]}")
+            logger.debug(f"HTTP {response.status_code}: {response.text[:500]}")
 
         response.raise_for_status()
         return response.json()
