@@ -75,6 +75,14 @@ class FulfillmentClient:
             logger.error("Authentication failed - token may be expired")
             raise requests.HTTPError("eBay token expired or invalid", response=response)
 
+        if response.status_code == 403:
+            logger.error(f"Access denied (403) - token may lack required scopes")
+            logger.error(f"Response: {response.text[:500]}")
+            raise requests.HTTPError("eBay access denied - missing API scopes", response=response)
+
+        if not response.ok:
+            logger.error(f"HTTP {response.status_code}: {response.text[:500]}")
+
         response.raise_for_status()
         return response.json()
 

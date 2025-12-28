@@ -283,8 +283,9 @@ def main() -> int:
                 if related_tx.transaction_type == TransactionType.SHIPPING_LABEL:
                     shipping_cost += abs(related_tx.amount.value)
 
-            # Use title from transaction line items, fallback to description or ID
-            item_title = tx.title or tx.description or f"Item {item_id[:12]}"
+            # Use title from transaction line items, fallback to description
+            # Note: Finances API doesn't include item titles - manual entry may be needed
+            item_title = tx.title or tx.description or "(Enter title manually)"
 
             item = SyncedItem(
                 item_id=item_id,
