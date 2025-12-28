@@ -238,6 +238,10 @@ class FinancesClient:
             first_item = line_items[0]
             item_id = first_item.get("itemId")
             item_title = first_item.get("title")
+            # Debug: log available fields in orderLineItems
+            logger.debug(f"orderLineItems[0] keys: {list(first_item.keys())}")
+            if not item_title:
+                logger.debug(f"No title in orderLineItems, full item: {first_item}")
 
         return Transaction(
             transaction_id=data.get("transactionId", ""),
