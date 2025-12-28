@@ -147,10 +147,12 @@ def main() -> int:
     logger.info(f"Found {order_count} orders")
     stats["new_orders"] = order_count
 
-    # Step 2: Get transactions for fees
+    # Step 2: Get transactions for fees and sales data
     logger.info("Fetching transactions...")
     transactions_by_order: dict[str, list] = {}
+    transactions_by_item: dict[str, list] = {}
     tx_count = 0
+    sale_transactions = []
 
     try:
         for tx in finances.get_transactions(start_date, end_date):
@@ -159,10 +161,17 @@ def main() -> int:
                 if tx.order_id not in transactions_by_order:
                     transactions_by_order[tx.order_id] = []
                 transactions_by_order[tx.order_id].append(tx)
+            if tx.item_id:
+                if tx.item_id not in transactions_by_item:
+                    transactions_by_item[tx.item_id] = []
+                transactions_by_item[tx.item_id].append(tx)
+            # Track SALE transactions for creating items
+            if tx.transaction_type == TransactionType.SALE:
+                sale_transactions.append(tx)
     except Exception as e:
         logger.error(f"Failed to fetch transactions: {e}")
 
-    logger.info(f"Found {tx_count} transactions")
+    logger.info(f"Found {tx_count} transactions ({len(sale_transactions)} sales)")
     stats["new_transactions"] = tx_count
 
     # Step 3: Get active listings
@@ -231,6 +240,58 @@ def main() -> int:
                     existing.quantity_sold = updated_item.quantity_sold
                 else:
                     items_to_sync[item_id] = updated_item
+
+    # Step 4b: Create items from transactions if orders API failed
+    # This ensures we capture sales even without the Fulfillment API
+    if not orders_by_item and sale_transactions:
+        logger.info(f"Creating items from {len(sale_transactions)} sale transactions...")
+        from decimal import Decimal
+
+        for tx in sale_transactions:
+            item_id = tx.item_id or tx.order_id or tx.transaction_id
+            if not item_id or item_id in items_to_sync:
+                continue
+
+            # Get all transactions for this item to calculate fees
+            item_txs = transactions_by_item.get(tx.item_id, []) if tx.item_id else [tx]
+
+            # Calculate fees from related transactions
+            final_value_fee = Decimal(0)
+            fixed_fee = Decimal(0)
+            ad_fee = Decimal(0)
+            shipping_cost = Decimal(0)
+            other_fees = Decimal(0)
+
+            for related_tx in item_txs:
+                for fee in related_tx.fee_breakdown:
+                    fee_val = abs(fee.amount.value)
+                    if "FINAL_VALUE" in fee.fee_type and "FIXED" not in fee.fee_type:
+                        final_value_fee += fee_val
+                    elif "FIXED" in fee.fee_type:
+                        fixed_fee += fee_val
+                    elif "AD_FEE" in fee.fee_type:
+                        ad_fee += fee_val
+                    else:
+                        other_fees += fee_val
+
+                if related_tx.transaction_type == TransactionType.SHIPPING_LABEL:
+                    shipping_cost += abs(related_tx.amount.value)
+
+            item = SyncedItem(
+                item_id=item_id,
+                title=tx.description or f"Sale {tx.transaction_id[:8]}",
+                status="Sold",
+                sale_date=tx.transaction_date,
+                final_sale_price=tx.amount.value,
+                final_value_fee=final_value_fee if final_value_fee else None,
+                fixed_per_order_fee=fixed_fee if fixed_fee else None,
+                promoted_listing_fee=ad_fee if ad_fee else None,
+                actual_shipping_cost=shipping_cost if shipping_cost else None,
+                other_fees=other_fees if other_fees else None,
+            )
+            items_to_sync[item_id] = item
+
+        logger.info(f"Created {len(items_to_sync)} items from transactions")
 
     # Step 5: Sync to Google Sheets
     logger.info("Syncing to Google Sheets...")
