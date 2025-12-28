@@ -162,24 +162,55 @@ class FinancesClient:
                 currency=fee_data.get("currency", "USD"),
             )
 
-        # Parse fee breakdown
+        # Parse fee breakdown from multiple possible locations
         fee_breakdown = []
-        for fee_data in data.get("orderLineItems", [{}])[0].get("feeBasisAmount", []):
-            # Actually fees are in a different structure
-            pass
 
-        # Get fees from marketplaceFees if available
-        for fee_data in data.get("orderLineItems", [{}])[0].get("marketplaceFees", []):
+        # Check orderLineItems for fees
+        for line_item in data.get("orderLineItems", []):
+            # Get marketplace fees
+            for fee_data in line_item.get("marketplaceFees", []):
+                fee_breakdown.append(
+                    FeeBreakdown(
+                        fee_type=fee_data.get("feeType", "OTHER"),
+                        amount=Amount(
+                            value=Decimal(fee_data.get("amount", {}).get("value", "0")),
+                            currency=fee_data.get("amount", {}).get("currency", "USD"),
+                        ),
+                        description=fee_data.get("feeType"),
+                    )
+                )
+
+            # Check for fees in feeBasisAmount structure
+            for fee_data in line_item.get("fees", []):
+                fee_breakdown.append(
+                    FeeBreakdown(
+                        fee_type=fee_data.get("feeType", "OTHER"),
+                        amount=Amount(
+                            value=Decimal(fee_data.get("amount", {}).get("value", "0")),
+                            currency=fee_data.get("amount", {}).get("currency", "USD"),
+                        ),
+                        description=fee_data.get("feeType"),
+                    )
+                )
+
+        # Also check top-level totalFeeAmount for any fees not in line items
+        if "totalFeeAmount" in data and not fee_breakdown:
+            total_fee = data["totalFeeAmount"]
             fee_breakdown.append(
                 FeeBreakdown(
-                    fee_type=fee_data.get("feeType", "OTHER"),
+                    fee_type="TOTAL_FEE",
                     amount=Amount(
-                        value=Decimal(fee_data.get("amount", {}).get("value", "0")),
-                        currency=fee_data.get("amount", {}).get("currency", "USD"),
+                        value=Decimal(total_fee.get("value", "0")),
+                        currency=total_fee.get("currency", "USD"),
                     ),
-                    description=fee_data.get("feeType"),
+                    description="Total fees",
                 )
             )
+
+        # Log fee types found for debugging
+        if fee_breakdown:
+            fee_types = [f.fee_type for f in fee_breakdown]
+            logger.debug(f"Transaction fees found: {fee_types}")
 
         # Parse transaction type
         tx_type_str = data.get("transactionType", "OTHER")
@@ -199,11 +230,14 @@ class FinancesClient:
                 order_id = ref.get("referenceId")
                 break
 
-        # Get item ID from order line items
+        # Get item ID and title from order line items
         item_id = None
+        item_title = None
         line_items = data.get("orderLineItems", [])
         if line_items:
-            item_id = line_items[0].get("itemId")
+            first_item = line_items[0]
+            item_id = first_item.get("itemId")
+            item_title = first_item.get("title")
 
         return Transaction(
             transaction_id=data.get("transactionId", ""),
@@ -211,6 +245,7 @@ class FinancesClient:
             transaction_date=tx_date,
             order_id=order_id,
             item_id=item_id,
+            title=item_title,
             amount=amount,
             fee_amount=fee_amount,
             fee_breakdown=fee_breakdown,

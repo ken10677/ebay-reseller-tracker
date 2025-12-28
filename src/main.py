@@ -2,6 +2,7 @@
 
 import sys
 from datetime import datetime, date, timedelta
+from decimal import Decimal
 from typing import Optional
 
 import pytz
@@ -154,6 +155,9 @@ def main() -> int:
     tx_count = 0
     sale_transactions = []
 
+    # Also track NON_SALE_CHARGE transactions for promoted listing fees
+    non_sale_charges = []
+
     try:
         for tx in finances.get_transactions(start_date, end_date):
             tx_count += 1
@@ -168,10 +172,13 @@ def main() -> int:
             # Track SALE transactions for creating items
             if tx.transaction_type == TransactionType.SALE:
                 sale_transactions.append(tx)
+            # Track NON_SALE_CHARGE for promoted listing fees
+            elif tx.transaction_type == TransactionType.NON_SALE_CHARGE:
+                non_sale_charges.append(tx)
     except Exception as e:
         logger.error(f"Failed to fetch transactions: {e}")
 
-    logger.info(f"Found {tx_count} transactions ({len(sale_transactions)} sales)")
+    logger.info(f"Found {tx_count} transactions ({len(sale_transactions)} sales, {len(non_sale_charges)} ad fees)")
     stats["new_transactions"] = tx_count
 
     # Step 3: Get active listings
@@ -245,7 +252,6 @@ def main() -> int:
     # This ensures we capture sales even without the Fulfillment API
     if not orders_by_item and sale_transactions:
         logger.info(f"Creating items from {len(sale_transactions)} sale transactions...")
-        from decimal import Decimal
 
         for tx in sale_transactions:
             item_id = tx.item_id or tx.order_id or tx.transaction_id
@@ -277,9 +283,12 @@ def main() -> int:
                 if related_tx.transaction_type == TransactionType.SHIPPING_LABEL:
                     shipping_cost += abs(related_tx.amount.value)
 
+            # Use title from transaction line items, fallback to description or ID
+            item_title = tx.title or tx.description or f"Item {item_id[:12]}"
+
             item = SyncedItem(
                 item_id=item_id,
-                title=tx.description or f"Sale {tx.transaction_id[:8]}",
+                title=item_title,
                 status="Sold",
                 sale_date=tx.transaction_date,
                 final_sale_price=tx.amount.value,
@@ -292,6 +301,50 @@ def main() -> int:
             items_to_sync[item_id] = item
 
         logger.info(f"Created {len(items_to_sync)} items from transactions")
+
+    # Step 4c: Apply promoted listing fees from NON_SALE_CHARGE transactions
+    if non_sale_charges:
+        logger.info(f"Processing {len(non_sale_charges)} promoted listing fee transactions...")
+        ad_fees_applied = 0
+
+        for tx in non_sale_charges:
+            # NON_SALE_CHARGE for ad fees should have an item_id or order_id
+            item_id = tx.item_id
+            order_id = tx.order_id
+
+            # The amount on NON_SALE_CHARGE is the fee (negative value)
+            ad_fee_amount = abs(tx.amount.value)
+
+            # Log details for debugging
+            logger.debug(f"Ad fee: ${ad_fee_amount} for item={item_id} order={order_id}")
+            logger.debug(f"  Description: {tx.description}")
+
+            # Try to find the item to apply this fee to
+            target_item = None
+
+            # First try direct item_id match
+            if item_id and item_id in items_to_sync:
+                target_item = items_to_sync[item_id]
+            # Try to find by order_id in transactions
+            elif order_id:
+                # Look for a SALE transaction with this order_id
+                for sale_tx in sale_transactions:
+                    if sale_tx.order_id == order_id and sale_tx.item_id:
+                        if sale_tx.item_id in items_to_sync:
+                            target_item = items_to_sync[sale_tx.item_id]
+                            break
+
+            if target_item:
+                # Add to existing promoted_listing_fee or set it
+                current_fee = target_item.promoted_listing_fee or Decimal(0)
+                target_item.promoted_listing_fee = current_fee + ad_fee_amount
+                target_item.promoted_listing = True
+                ad_fees_applied += 1
+                logger.debug(f"  Applied to item {target_item.item_id}: ${ad_fee_amount}")
+            else:
+                logger.debug(f"  Could not match ad fee to any item")
+
+        logger.info(f"Applied {ad_fees_applied} promoted listing fees to items")
 
     # Step 5: Sync to Google Sheets
     logger.info("Syncing to Google Sheets...")

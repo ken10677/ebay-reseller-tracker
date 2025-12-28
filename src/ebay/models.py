@@ -87,6 +87,7 @@ class Transaction(BaseModel):
     transaction_date: datetime = Field(..., description="When transaction occurred")
     order_id: Optional[str] = Field(None, description="Associated order ID")
     item_id: Optional[str] = Field(None, description="Associated item/listing ID")
+    title: Optional[str] = Field(None, description="Item title from line items")
     amount: Amount = Field(..., description="Transaction amount")
     fee_amount: Optional[Amount] = Field(None, description="Total fees for this transaction")
     fee_breakdown: list[FeeBreakdown] = Field(
