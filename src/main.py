@@ -1,0 +1,274 @@
+"""Main entry point for eBay Reseller Tracker sync."""
+
+import sys
+from datetime import datetime, date, timedelta
+from typing import Optional
+
+import pytz
+
+from src.ebay.auth import EbayAuth
+from src.ebay.finances import FinancesClient
+from src.ebay.fulfillment import FulfillmentClient
+from src.ebay.inventory import InventoryClient
+from src.ebay.trading import TradingClient
+from src.ebay.models import SyncedItem, TransactionType
+from src.sheets.client import GoogleSheetsClient
+from src.sheets.sync import SheetSync
+from src.utils.config import Config
+from src.utils.logging import setup_logging, get_logger
+
+
+def main() -> int:
+    """Run the eBay to Google Sheets sync.
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
+    # Load configuration
+    try:
+        config = Config.from_env()
+    except ValueError as e:
+        print(f"Configuration error: {e}")
+        print("Make sure you have set the required environment variables.")
+        print("See .env.example for reference.")
+        return 1
+
+    # Set up logging
+    setup_logging(config.log_level)
+    logger = get_logger("main")
+
+    logger.info("=" * 50)
+    logger.info("eBay Reseller Tracker Sync Starting")
+    logger.info("=" * 50)
+
+    tz = pytz.timezone(config.timezone)
+    now = datetime.now(tz)
+    logger.info(f"Timestamp: {now.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+
+    # Initialize eBay clients
+    logger.info("Initializing eBay API clients...")
+    auth = EbayAuth(
+        user_token=config.ebay_user_token,
+        trading_token=config.ebay_trading_token,
+    )
+
+    # Validate token
+    if not auth.validate_token():
+        logger.error("eBay token validation failed!")
+        logger.error("Please refresh your eBay OAuth token.")
+        return 1
+
+    finances = FinancesClient(auth)
+    fulfillment = FulfillmentClient(auth)
+    inventory = InventoryClient(auth)
+    trading = TradingClient(auth)
+
+    # Check Trading API availability
+    trading_available = trading.is_available()
+    if trading_available:
+        logger.info("Trading API available - full metrics enabled")
+    else:
+        logger.info("Trading API not available - using limited metrics")
+
+    # Initialize Google Sheets client
+    logger.info("Initializing Google Sheets client...")
+    if not config.has_google_credentials():
+        logger.error("Google credentials not configured!")
+        logger.error("Set GOOGLE_CREDENTIALS_PATH or GOOGLE_CREDENTIALS_JSON")
+        return 1
+
+    try:
+        sheets = GoogleSheetsClient(
+            credentials_path=config.google_credentials_path,
+            credentials_json=config.google_credentials_json,
+            sheet_id=config.google_sheet_id,
+        )
+    except Exception as e:
+        logger.error(f"Failed to initialize Google Sheets: {e}")
+        return 1
+
+    # Initialize sync
+    sync = SheetSync(sheets, config.timezone)
+
+    # Set up sheets if needed
+    try:
+        sync.setup_sheets()
+    except Exception as e:
+        logger.error(f"Failed to set up worksheets: {e}")
+        return 1
+
+    # Load existing items
+    sync.load_existing_items()
+
+    # Determine sync date range
+    # For incremental sync, we could track last sync time
+    # For now, sync from configured start date
+    start_date = config.sync_start_date
+    end_date = date.today()
+
+    logger.info(f"Sync date range: {start_date} to {end_date}")
+
+    # Track statistics
+    stats = {
+        "new_transactions": 0,
+        "updated_listings": 0,
+        "new_orders": 0,
+        "items_synced": 0,
+    }
+
+    # Step 1: Get all orders in date range
+    logger.info("Fetching orders...")
+    orders_by_item: dict[str, list] = {}
+    order_count = 0
+
+    try:
+        for order in fulfillment.get_orders(start_date, end_date):
+            order_count += 1
+            for line_item in order.line_items:
+                item_id = line_item.item_id
+                if item_id not in orders_by_item:
+                    orders_by_item[item_id] = []
+                orders_by_item[item_id].append(order)
+    except Exception as e:
+        logger.error(f"Failed to fetch orders: {e}")
+        # Continue with what we have
+
+    logger.info(f"Found {order_count} orders")
+    stats["new_orders"] = order_count
+
+    # Step 2: Get transactions for fees
+    logger.info("Fetching transactions...")
+    transactions_by_order: dict[str, list] = {}
+    tx_count = 0
+
+    try:
+        for tx in finances.get_transactions(start_date, end_date):
+            tx_count += 1
+            if tx.order_id:
+                if tx.order_id not in transactions_by_order:
+                    transactions_by_order[tx.order_id] = []
+                transactions_by_order[tx.order_id].append(tx)
+    except Exception as e:
+        logger.error(f"Failed to fetch transactions: {e}")
+
+    logger.info(f"Found {tx_count} transactions")
+    stats["new_transactions"] = tx_count
+
+    # Step 3: Get active listings
+    logger.info("Fetching active listings...")
+    items_to_sync: dict[str, SyncedItem] = {}
+
+    try:
+        # Get from Trading API if available (has more details)
+        if trading_available:
+            start_dt = datetime.combine(start_date, datetime.min.time())
+            end_dt = datetime.combine(end_date, datetime.max.time())
+            listings = trading.get_seller_list(start_dt, end_dt)
+
+            for listing in listings:
+                item = sync.update_item_from_listing(listing)
+                items_to_sync[item.item_id] = item
+                stats["updated_listings"] += 1
+
+        # Also get from Inventory API for any missing items
+        for offer in inventory.get_offers():
+            if offer.item_id and offer.item_id not in items_to_sync:
+                # Create basic item from offer
+                item = SyncedItem(
+                    item_id=offer.item_id,
+                    title=offer.sku,  # May need to get title elsewhere
+                    list_price=offer.price.value,
+                    listing_format="Fixed Price" if offer.format == "FIXED_PRICE" else "Auction",
+                    status="Active" if offer.status == "ACTIVE" else "Ended",
+                    quantity_listed=offer.quantity,
+                    quantity_sold=offer.quantity_sold,
+                    list_date=offer.listing_start_date,
+                    end_date=offer.listing_end_date,
+                )
+                items_to_sync[item.item_id] = item
+
+    except Exception as e:
+        logger.error(f"Failed to fetch listings: {e}")
+
+    # Step 4: Update items with order/transaction data
+    logger.info("Processing sold items...")
+    for item_id, orders in orders_by_item.items():
+        for order in orders:
+            # Get transactions for this order
+            order_transactions = transactions_by_order.get(order.order_id, [])
+
+            # Update item with order data
+            updated_item = sync.update_item_from_order(
+                item_id, order, order_transactions
+            )
+
+            if updated_item:
+                # Merge with existing item data if we have it
+                if item_id in items_to_sync:
+                    existing = items_to_sync[item_id]
+                    # Preserve listing details, update sale details
+                    existing.status = updated_item.status
+                    existing.sale_date = updated_item.sale_date
+                    existing.final_sale_price = updated_item.final_sale_price
+                    existing.shipping_charged = updated_item.shipping_charged
+                    existing.actual_shipping_cost = updated_item.actual_shipping_cost
+                    existing.final_value_fee = updated_item.final_value_fee
+                    existing.fixed_per_order_fee = updated_item.fixed_per_order_fee
+                    existing.promoted_listing_fee = updated_item.promoted_listing_fee
+                    existing.international_fee = updated_item.international_fee
+                    existing.other_fees = updated_item.other_fees
+                    existing.quantity_sold = updated_item.quantity_sold
+                else:
+                    items_to_sync[item_id] = updated_item
+
+    # Step 5: Sync to Google Sheets
+    logger.info("Syncing to Google Sheets...")
+    items_list = list(items_to_sync.values())
+    updated, added = sync.sync_items_batch(items_list)
+    stats["items_synced"] = updated + added
+
+    # Step 6: Log daily metrics
+    sync.log_daily_metrics()
+
+    # Get summary
+    summary = sync.get_sync_summary()
+
+    # Print summary
+    logger.info("")
+    logger.info("=" * 50)
+    logger.info("eBay Reseller Tracker Sync Complete")
+    logger.info("=" * 50)
+    logger.info(f"Timestamp: {now.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+    logger.info(f"Date Range: {start_date} to {end_date}")
+    logger.info("")
+    logger.info(f"New Transactions: {stats['new_transactions']}")
+    logger.info(f"Updated Listings: {stats['updated_listings']}")
+    logger.info(f"New Orders: {stats['new_orders']}")
+    logger.info(f"Items Synced: {stats['items_synced']}")
+    logger.info("")
+    logger.info("Quick Summary:")
+    logger.info(f"  Total Sold: {summary['sold_items']} items")
+    logger.info(f"  Sell-Through: {summary['sell_through_rate']:.1f}%")
+    logger.info(f"  Total Revenue: ${summary['total_revenue']:.2f}")
+    logger.info(f"  Total Fees: ${summary['total_fees']:.2f}")
+    logger.info(f"  Total Profit: ${summary['total_profit']:.2f}")
+    logger.info("")
+    logger.info(f"Active Listings: {summary['active_listings']}")
+    logger.info("")
+
+    # Token status
+    token_status = auth.get_token_status_message()
+    if "expires" in token_status.lower() or "invalid" in token_status.lower():
+        logger.warning(token_status)
+    else:
+        logger.info(token_status)
+
+    logger.info("")
+    logger.info(f"Sheet updated: {sheets.get_sheet_url()}")
+    logger.info("=" * 50)
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
