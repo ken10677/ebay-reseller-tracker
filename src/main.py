@@ -326,13 +326,21 @@ def main() -> int:
             # First try direct item_id match
             if item_id and item_id in items_to_sync:
                 target_item = items_to_sync[item_id]
-            # Try to find by order_id in transactions
+            # Try to find by order_id (items may be keyed by order_id)
+            elif order_id and order_id in items_to_sync:
+                target_item = items_to_sync[order_id]
+            # Try to find by order_id in sale transactions
             elif order_id:
                 # Look for a SALE transaction with this order_id
                 for sale_tx in sale_transactions:
-                    if sale_tx.order_id == order_id and sale_tx.item_id:
-                        if sale_tx.item_id in items_to_sync:
-                            target_item = items_to_sync[sale_tx.item_id]
+                    if sale_tx.order_id == order_id:
+                        # The item may be keyed by item_id, order_id, or transaction_id
+                        possible_keys = [sale_tx.item_id, sale_tx.order_id, sale_tx.transaction_id]
+                        for key in possible_keys:
+                            if key and key in items_to_sync:
+                                target_item = items_to_sync[key]
+                                break
+                        if target_item:
                             break
 
             if target_item:
