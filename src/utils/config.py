@@ -55,6 +55,13 @@ class Config(BaseModel):
         description="Start date for historical data pull",
     )
 
+    # Email notifications
+    email_smtp_host: str = Field("smtp.gmail.com", description="SMTP server host")
+    email_smtp_port: int = Field(587, description="SMTP server port")
+    email_sender: Optional[str] = Field(None, description="Sender email address")
+    email_password: Optional[str] = Field(None, description="Sender email password")
+    email_recipient: Optional[str] = Field(None, description="Recipient email address")
+
     # eBay API Base URLs
     ebay_finances_base_url: str = "https://apiz.ebay.com/sell/finances/v1"
     ebay_fulfillment_base_url: str = "https://apiz.ebay.com/sell/fulfillment/v1"
@@ -119,6 +126,11 @@ class Config(BaseModel):
             log_level=os.getenv("LOG_LEVEL", "INFO"),
             timezone=os.getenv("TIMEZONE", "America/New_York"),
             sync_start_date=os.getenv("SYNC_START_DATE", "2025-11-01"),
+            email_smtp_host=os.getenv("EMAIL_SMTP_HOST", "smtp.gmail.com"),
+            email_smtp_port=int(os.getenv("EMAIL_SMTP_PORT", "587")),
+            email_sender=os.getenv("EMAIL_SENDER"),
+            email_password=os.getenv("EMAIL_PASSWORD"),
+            email_recipient=os.getenv("EMAIL_RECIPIENT"),
         )
 
     def has_google_credentials(self) -> bool:
@@ -128,6 +140,10 @@ class Config(BaseModel):
     def has_trading_api(self) -> bool:
         """Check if Trading API access is configured."""
         return bool(self.ebay_trading_token)
+
+    def has_email_configured(self) -> bool:
+        """Check if email notifications are configured."""
+        return all([self.email_sender, self.email_password, self.email_recipient])
 
     def can_auto_refresh(self) -> bool:
         """Check if automatic token refresh is configured."""

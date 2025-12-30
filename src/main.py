@@ -16,6 +16,7 @@ from src.ebay.models import SyncedItem, TransactionType
 from src.sheets.client import GoogleSheetsClient
 from src.sheets.sync import SheetSync
 from src.utils.config import Config
+from src.utils.email import EmailNotifier
 from src.utils.logging import setup_logging, get_logger
 
 
@@ -218,9 +219,13 @@ def main() -> int:
         logger.error(f"Failed to fetch listings: {e}")
 
     # Step 4: Update items with order/transaction data
+    # Handle multiple orders per item by aggregating data
     logger.info("Processing sold items...")
     for item_id, orders in orders_by_item.items():
-        for order in orders:
+        # Sort orders by date to get the most recent as primary
+        sorted_orders = sorted(orders, key=lambda o: o.creation_date or datetime.min)
+
+        for i, order in enumerate(sorted_orders):
             # Get transactions for this order
             order_transactions = transactions_by_order.get(order.order_id, [])
 
@@ -233,18 +238,32 @@ def main() -> int:
                 # Merge with existing item data if we have it
                 if item_id in items_to_sync:
                     existing = items_to_sync[item_id]
-                    # Preserve listing details, update sale details
+                    # Preserve listing details, AGGREGATE sale details for multiple orders
                     existing.status = updated_item.status
-                    existing.sale_date = updated_item.sale_date
-                    existing.final_sale_price = updated_item.final_sale_price
-                    existing.shipping_charged = updated_item.shipping_charged
-                    existing.actual_shipping_cost = updated_item.actual_shipping_cost
-                    existing.final_value_fee = updated_item.final_value_fee
-                    existing.fixed_per_order_fee = updated_item.fixed_per_order_fee
-                    existing.promoted_listing_fee = updated_item.promoted_listing_fee
-                    existing.international_fee = updated_item.international_fee
-                    existing.other_fees = updated_item.other_fees
-                    existing.quantity_sold = updated_item.quantity_sold
+
+                    # Use most recent sale date
+                    if not existing.sale_date or (updated_item.sale_date and updated_item.sale_date > existing.sale_date):
+                        existing.sale_date = updated_item.sale_date
+
+                    # AGGREGATE financial values (sum them up for multiple sales)
+                    if updated_item.final_sale_price:
+                        existing.final_sale_price = (existing.final_sale_price or Decimal(0)) + updated_item.final_sale_price
+                    if updated_item.shipping_charged:
+                        existing.shipping_charged = (existing.shipping_charged or Decimal(0)) + updated_item.shipping_charged
+                    if updated_item.actual_shipping_cost:
+                        existing.actual_shipping_cost = (existing.actual_shipping_cost or Decimal(0)) + updated_item.actual_shipping_cost
+                    if updated_item.final_value_fee:
+                        existing.final_value_fee = (existing.final_value_fee or Decimal(0)) + updated_item.final_value_fee
+                    if updated_item.fixed_per_order_fee:
+                        existing.fixed_per_order_fee = (existing.fixed_per_order_fee or Decimal(0)) + updated_item.fixed_per_order_fee
+                    if updated_item.promoted_listing_fee:
+                        existing.promoted_listing_fee = (existing.promoted_listing_fee or Decimal(0)) + updated_item.promoted_listing_fee
+                    if updated_item.international_fee:
+                        existing.international_fee = (existing.international_fee or Decimal(0)) + updated_item.international_fee
+                    if updated_item.other_fees:
+                        existing.other_fees = (existing.other_fees or Decimal(0)) + updated_item.other_fees
+                    # Aggregate quantity sold
+                    existing.quantity_sold = (existing.quantity_sold or 0) + (updated_item.quantity_sold or 0)
                 else:
                     items_to_sync[item_id] = updated_item
 
@@ -308,6 +327,12 @@ def main() -> int:
         logger.info(f"Processing {len(non_sale_charges)} promoted listing fee transactions...")
         ad_fees_applied = 0
 
+        # Build a reverse lookup: order_id -> item_id for items we've synced
+        order_to_item: dict[str, str] = {}
+        for item_id, orders in orders_by_item.items():
+            for order in orders:
+                order_to_item[order.order_id] = item_id
+
         for tx in non_sale_charges:
             # NON_SALE_CHARGE for ad fees should have an item_id or order_id
             item_id = tx.item_id
@@ -322,7 +347,12 @@ def main() -> int:
             # First try direct item_id match
             if item_id and item_id in items_to_sync:
                 target_item = items_to_sync[item_id]
-            # Try to find by order_id (items may be keyed by order_id)
+            # Use our order_id -> item_id lookup
+            elif order_id and order_id in order_to_item:
+                lookup_item_id = order_to_item[order_id]
+                if lookup_item_id in items_to_sync:
+                    target_item = items_to_sync[lookup_item_id]
+            # Try to find by order_id (items may be keyed by order_id as fallback)
             elif order_id and order_id in items_to_sync:
                 target_item = items_to_sync[order_id]
             # Try to find by order_id in sale transactions
@@ -396,6 +426,23 @@ def main() -> int:
     logger.info("")
     logger.info(f"Sheet updated: {sheets.get_sheet_url()}")
     logger.info("=" * 50)
+
+    # Step 7: Send email notification
+    if config.has_email_configured():
+        logger.info("Sending email notification...")
+        email = EmailNotifier(
+            smtp_host=config.email_smtp_host,
+            smtp_port=config.email_smtp_port,
+            sender=config.email_sender,
+            password=config.email_password,
+            recipient=config.email_recipient,
+        )
+        if email.send_sync_summary(stats, summary, sheets.get_sheet_url()):
+            logger.info("Email notification sent successfully")
+        else:
+            logger.warning("Failed to send email notification")
+    else:
+        logger.info("Email notifications not configured - skipping")
 
     return 0
 

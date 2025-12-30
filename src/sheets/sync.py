@@ -164,8 +164,9 @@ class SheetSync:
             logger.debug(f"Updated item {item.item_id} at row {existing_row}")
             return True
         else:
-            # Append new row
-            next_row = len(self._item_id_to_row) + 2  # +1 for header, +1 for next
+            # Append new row - get actual row count from sheet to avoid gaps/duplicates
+            all_values = self.sheets.get_all_values("Inventory")
+            next_row = len(all_values) + 1  # Next row after all existing data
             row_values = self._item_to_row(item, next_row)
             new_row = self.sheets.append_row("Inventory", row_values)
             self._item_id_to_row[item.item_id] = new_row
@@ -407,6 +408,13 @@ class SheetSync:
     def log_daily_metrics(self) -> None:
         """Log daily metrics to the Metrics Log worksheet."""
         today = datetime.now(self.tz).strftime("%Y-%m-%d")
+
+        # Check if we already logged metrics for today (prevent duplicates)
+        metrics_values = self.sheets.get_all_values("Metrics Log")
+        for row in metrics_values[1:]:  # Skip header
+            if row and row[0] == today:
+                logger.info(f"Metrics already logged for {today} - skipping")
+                return
 
         # Get current values from Inventory
         values = self.sheets.get_all_values("Inventory")
