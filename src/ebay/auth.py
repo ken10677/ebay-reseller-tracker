@@ -87,10 +87,11 @@ class EbayAuth:
                 data={
                     "grant_type": "refresh_token",
                     "refresh_token": self.refresh_token,
-                    "scope": "https://api.ebay.com/oauth/api_scope/sell.finances "
-                    "https://api.ebay.com/oauth/api_scope/sell.fulfillment "
-                    "https://api.ebay.com/oauth/api_scope/sell.inventory "
-                    "https://api.ebay.com/oauth/api_scope/sell.analytics",
+                    # Only request scopes that were granted during authorization
+                    # The app currently has: api_scope, sell.finances, sell.marketing.readonly
+                    "scope": "https://api.ebay.com/oauth/api_scope "
+                    "https://api.ebay.com/oauth/api_scope/sell.finances "
+                    "https://api.ebay.com/oauth/api_scope/sell.marketing.readonly",
                 },
                 timeout=30,
             )
