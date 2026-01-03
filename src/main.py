@@ -8,6 +8,7 @@ from typing import Optional
 import pytz
 
 from src.ebay.auth import EbayAuth
+from src.ebay.browse import BrowseClient
 from src.ebay.finances import FinancesClient
 from src.ebay.fulfillment import FulfillmentClient
 from src.ebay.inventory import InventoryClient
@@ -75,6 +76,7 @@ def main() -> int:
     fulfillment = FulfillmentClient(auth)
     inventory = InventoryClient(auth)
     trading = TradingClient(auth)
+    browse = BrowseClient(auth)
 
     # Check Trading API availability
     trading_available = trading.is_available()
@@ -380,6 +382,16 @@ def main() -> int:
                 logger.debug(f"Could not match ad fee for order {order_id} to any item")
 
         logger.info(f"Applied {ad_fees_applied} promoted listing fees to items")
+
+    # Step 4d: Enrich items with titles from Browse API (public data)
+    # This helps when we don't have Fulfillment API access for order details
+    logger.info("Enriching items with titles from Browse API...")
+    try:
+        enriched_count = browse.enrich_items_with_titles(items_to_sync)
+        if enriched_count:
+            logger.info(f"Enriched {enriched_count} items with titles from public data")
+    except Exception as e:
+        logger.warning(f"Failed to enrich titles from Browse API: {e}")
 
     # Step 5: Sync to Google Sheets
     logger.info("Syncing to Google Sheets...")
