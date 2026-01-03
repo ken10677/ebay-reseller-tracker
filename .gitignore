@@ -162,3 +162,6 @@ sync_state.json
 last_sync.json
 *.log
 logs/
+
+# Helper scripts with credentials
+get_refresh_token.py
