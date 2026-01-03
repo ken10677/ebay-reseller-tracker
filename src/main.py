@@ -193,6 +193,7 @@ def main() -> int:
             # Track SALE transactions for creating items
             if tx.transaction_type == TransactionType.SALE:
                 sale_transactions.append(tx)
+                logger.debug(f"SALE: order={tx.order_id}, item={tx.item_id}, amount=${tx.amount.value}")
             # Track NON_SALE_CHARGE for promoted listing fees
             elif tx.transaction_type == TransactionType.NON_SALE_CHARGE:
                 non_sale_charges.append(tx)
@@ -294,6 +295,9 @@ def main() -> int:
 
     # Step 4b: Create items from transactions if orders API failed
     # This ensures we capture sales even without the Fulfillment API
+    # Initialize order_id -> item_id lookup for matching fees/shipping later
+    order_to_item: dict[str, str] = {}
+
     if not orders_by_item and sale_transactions:
         logger.info(f"Creating items from {len(sale_transactions)} sale transactions...")
 
@@ -354,6 +358,11 @@ def main() -> int:
                 other_fees=other_fees if other_fees else None,
             )
             items_to_sync[item_id] = item
+            logger.debug(f"Created item key={item_id}, order_id={tx.order_id}")
+
+            # Build order_id -> item_id lookup for matching fees later
+            if tx.order_id:
+                order_to_item[tx.order_id] = item_id
 
         logger.info(f"Created {len(items_to_sync)} items from transactions")
 
@@ -362,11 +371,13 @@ def main() -> int:
         logger.info(f"Processing {len(non_sale_charges)} promoted listing fee transactions...")
         ad_fees_applied = 0
 
-        # Build a reverse lookup: order_id -> item_id for items we've synced
-        order_to_item: dict[str, str] = {}
+        # Also add from orders_by_item if we have Fulfillment API data
         for item_id, orders in orders_by_item.items():
             for order in orders:
-                order_to_item[order.order_id] = item_id
+                if order.order_id not in order_to_item:
+                    order_to_item[order.order_id] = item_id
+
+        logger.debug(f"Order-to-item lookup has {len(order_to_item)} mappings")
 
         for tx in non_sale_charges:
             # NON_SALE_CHARGE for ad fees should have an item_id or order_id
