@@ -176,6 +176,8 @@ def main() -> int:
 
     # Also track NON_SALE_CHARGE transactions for promoted listing fees
     non_sale_charges = []
+    # Track SHIPPING_LABEL transactions separately
+    shipping_label_txs = []
 
     try:
         for tx in finances.get_transactions(start_date, end_date):
@@ -194,10 +196,15 @@ def main() -> int:
             # Track NON_SALE_CHARGE for promoted listing fees
             elif tx.transaction_type == TransactionType.NON_SALE_CHARGE:
                 non_sale_charges.append(tx)
+                logger.debug(f"NON_SALE_CHARGE: order={tx.order_id}, item={tx.item_id}, amount=${tx.amount.value}, desc={tx.description}")
+            # Track SHIPPING_LABEL transactions
+            elif tx.transaction_type == TransactionType.SHIPPING_LABEL:
+                shipping_label_txs.append(tx)
+                logger.debug(f"SHIPPING_LABEL: order={tx.order_id}, item={tx.item_id}, amount=${tx.amount.value}")
     except Exception as e:
         logger.error(f"Failed to fetch transactions: {e}")
 
-    logger.info(f"Found {tx_count} transactions ({len(sale_transactions)} sales, {len(non_sale_charges)} ad fees)")
+    logger.info(f"Found {tx_count} transactions ({len(sale_transactions)} sales, {len(non_sale_charges)} ad fees, {len(shipping_label_txs)} shipping labels)")
     stats["new_transactions"] = tx_count
 
     # Step 3: Get active listings
@@ -409,7 +416,53 @@ def main() -> int:
 
         logger.info(f"Applied {ad_fees_applied} promoted listing fees to items")
 
-    # Step 4d: Enrich items with titles from Browse API (public data)
+    # Step 4d: Apply SHIPPING_LABEL transactions to items
+    if shipping_label_txs:
+        logger.info(f"Processing {len(shipping_label_txs)} shipping label transactions...")
+        shipping_applied = 0
+
+        for tx in shipping_label_txs:
+            order_id = tx.order_id
+            item_id = tx.item_id
+            shipping_cost = abs(tx.amount.value)
+
+            # Try to find the item to apply shipping cost to
+            target_item = None
+
+            # First try direct item_id match
+            if item_id and item_id in items_to_sync:
+                target_item = items_to_sync[item_id]
+            # Use order_to_item lookup
+            elif order_id and order_id in order_to_item:
+                lookup_item_id = order_to_item[order_id]
+                if lookup_item_id in items_to_sync:
+                    target_item = items_to_sync[lookup_item_id]
+            # Try order_id as key
+            elif order_id and order_id in items_to_sync:
+                target_item = items_to_sync[order_id]
+            # Search sale transactions for matching order
+            elif order_id:
+                for sale_tx in sale_transactions:
+                    if sale_tx.order_id == order_id:
+                        possible_keys = [sale_tx.item_id, sale_tx.order_id, sale_tx.transaction_id]
+                        for key in possible_keys:
+                            if key and key in items_to_sync:
+                                target_item = items_to_sync[key]
+                                break
+                        if target_item:
+                            break
+
+            if target_item:
+                current_cost = target_item.actual_shipping_cost or Decimal(0)
+                target_item.actual_shipping_cost = current_cost + shipping_cost
+                shipping_applied += 1
+                logger.debug(f"Applied ${shipping_cost} shipping cost to item {target_item.item_id}")
+            else:
+                logger.debug(f"Could not match shipping label for order {order_id} to any item")
+
+        logger.info(f"Applied {shipping_applied} shipping label costs to items")
+
+    # Step 4e: Enrich items with titles from Browse API (public data)
     # This helps when we don't have Fulfillment API access for order details
     logger.info("Enriching items with titles from Browse API...")
     try:
