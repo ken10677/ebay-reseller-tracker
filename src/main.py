@@ -193,15 +193,12 @@ def main() -> int:
             # Track SALE transactions for creating items
             if tx.transaction_type == TransactionType.SALE:
                 sale_transactions.append(tx)
-                logger.debug(f"SALE: order={tx.order_id}, item={tx.item_id}, amount=${tx.amount.value}")
             # Track NON_SALE_CHARGE for promoted listing fees
             elif tx.transaction_type == TransactionType.NON_SALE_CHARGE:
                 non_sale_charges.append(tx)
-                logger.debug(f"NON_SALE_CHARGE: order={tx.order_id}, item={tx.item_id}, amount=${tx.amount.value}, desc={tx.description}")
             # Track SHIPPING_LABEL transactions
             elif tx.transaction_type == TransactionType.SHIPPING_LABEL:
                 shipping_label_txs.append(tx)
-                logger.debug(f"SHIPPING_LABEL: order={tx.order_id}, item={tx.item_id}, amount=${tx.amount.value}")
     except Exception as e:
         logger.error(f"Failed to fetch transactions: {e}")
 
@@ -358,7 +355,6 @@ def main() -> int:
                 other_fees=other_fees if other_fees else None,
             )
             items_to_sync[item_id] = item
-            logger.debug(f"Created item key={item_id}, order_id={tx.order_id}")
 
             # Build order_id -> item_id lookup for matching fees later
             if tx.order_id:
@@ -370,6 +366,8 @@ def main() -> int:
     if non_sale_charges:
         logger.info(f"Processing {len(non_sale_charges)} promoted listing fee transactions...")
         ad_fees_applied = 0
+        matched_ad_fees = Decimal(0)
+        unmatched_ad_fees = Decimal(0)
 
         # Also add from orders_by_item if we have Fulfillment API data
         for item_id, orders in orders_by_item.items():
@@ -377,7 +375,6 @@ def main() -> int:
                 if order.order_id not in order_to_item:
                     order_to_item[order.order_id] = item_id
 
-        logger.debug(f"Order-to-item lookup has {len(order_to_item)} mappings")
 
         for tx in non_sale_charges:
             # NON_SALE_CHARGE for ad fees should have an item_id or order_id
@@ -421,16 +418,38 @@ def main() -> int:
                 target_item.promoted_listing_fee = current_fee + ad_fee_amount
                 target_item.promoted_listing = True
                 ad_fees_applied += 1
+                matched_ad_fees += ad_fee_amount
                 logger.debug(f"Applied ${ad_fee_amount} ad fee to item {target_item.item_id}")
             else:
-                logger.debug(f"Could not match ad fee for order {order_id} to any item")
+                unmatched_ad_fees += ad_fee_amount
+                logger.debug(f"Could not match ad fee for order {order_id} (${ad_fee_amount})")
 
-        logger.info(f"Applied {ad_fees_applied} promoted listing fees to items")
+        # If we couldn't match ad fees, distribute them proportionally across sold items
+        if unmatched_ad_fees > 0 and items_to_sync:
+            sold_items = [item for item in items_to_sync.values() if item.status == "Sold"]
+            if sold_items:
+                total_revenue = sum(
+                    item.final_sale_price or Decimal(0)
+                    for item in sold_items
+                )
+                if total_revenue > 0:
+                    for item in sold_items:
+                        item_revenue = item.final_sale_price or Decimal(0)
+                        proportion = item_revenue / total_revenue
+                        item_share = unmatched_ad_fees * proportion
+                        current_fee = item.promoted_listing_fee or Decimal(0)
+                        item.promoted_listing_fee = current_fee + item_share
+                        item.promoted_listing = True
+                    logger.info(f"Distributed ${unmatched_ad_fees:.2f} unmatched ad fees proportionally across {len(sold_items)} sold items")
+
+        logger.info(f"Applied {ad_fees_applied} matched + ${unmatched_ad_fees:.2f} distributed promoted listing fees")
 
     # Step 4d: Apply SHIPPING_LABEL transactions to items
     if shipping_label_txs:
         logger.info(f"Processing {len(shipping_label_txs)} shipping label transactions...")
         shipping_applied = 0
+        matched_shipping = Decimal(0)
+        unmatched_shipping = Decimal(0)
 
         for tx in shipping_label_txs:
             order_id = tx.order_id
@@ -467,11 +486,30 @@ def main() -> int:
                 current_cost = target_item.actual_shipping_cost or Decimal(0)
                 target_item.actual_shipping_cost = current_cost + shipping_cost
                 shipping_applied += 1
+                matched_shipping += shipping_cost
                 logger.debug(f"Applied ${shipping_cost} shipping cost to item {target_item.item_id}")
             else:
-                logger.debug(f"Could not match shipping label for order {order_id} to any item")
+                unmatched_shipping += shipping_cost
+                logger.debug(f"Could not match shipping label (${shipping_cost})")
 
-        logger.info(f"Applied {shipping_applied} shipping label costs to items")
+        # If we couldn't match shipping costs, distribute them proportionally
+        if unmatched_shipping > 0 and items_to_sync:
+            sold_items = [item for item in items_to_sync.values() if item.status == "Sold"]
+            if sold_items:
+                total_revenue = sum(
+                    item.final_sale_price or Decimal(0)
+                    for item in sold_items
+                )
+                if total_revenue > 0:
+                    for item in sold_items:
+                        item_revenue = item.final_sale_price or Decimal(0)
+                        proportion = item_revenue / total_revenue
+                        item_share = unmatched_shipping * proportion
+                        current_cost = item.actual_shipping_cost or Decimal(0)
+                        item.actual_shipping_cost = current_cost + item_share
+                    logger.info(f"Distributed ${unmatched_shipping:.2f} unmatched shipping costs proportionally across {len(sold_items)} sold items")
+
+        logger.info(f"Applied {shipping_applied} matched + ${unmatched_shipping:.2f} distributed shipping costs")
 
     # Step 4e: Enrich items with titles from Browse API (public data)
     # This helps when we don't have Fulfillment API access for order details

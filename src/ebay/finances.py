@@ -231,14 +231,6 @@ class FinancesClient:
                 order_id = ref.get("referenceId")
                 break
 
-        # Log all reference types for various transaction types to help debug
-        if references:
-            if tx_type == TransactionType.SHIPPING_LABEL:
-                ref_types = [f"{r.get('referenceType')}={r.get('referenceId')}" for r in references]
-                logger.debug(f"Shipping label references: {ref_types}")
-            elif tx_type == TransactionType.SALE:
-                ref_types = [f"{r.get('referenceType')}={r.get('referenceId')}" for r in references]
-                logger.debug(f"SALE references: {ref_types}")
 
         # Get item ID and title from order line items
         # Note: Finances API doesn't include item titles - only financial data
@@ -253,10 +245,6 @@ class FinancesClient:
             # Use lineItemId as fallback for item_id
             if not item_id:
                 item_id = first_item.get("lineItemId")
-
-            # Log line item data for SALE transactions to understand structure
-            if tx_type == TransactionType.SALE:
-                logger.debug(f"SALE line item keys: {list(first_item.keys())}")
 
         return Transaction(
             transaction_id=data.get("transactionId", ""),
