@@ -47,6 +47,7 @@ class GoogleSheetsClient:
         self.sheet_id = sheet_id
         self._client: Optional[gspread.Client] = None
         self._spreadsheet: Optional[gspread.Spreadsheet] = None
+        self._worksheets: dict[str, gspread.Worksheet] = {}  # Cache worksheets
 
         # Handle credentials
         if credentials_json:
@@ -126,12 +127,18 @@ class GoogleSheetsClient:
     def get_worksheet(self, title: str) -> gspread.Worksheet:
         """Get or create a worksheet by title.
 
+        Uses caching to minimize API calls and avoid rate limits.
+
         Args:
             title: Worksheet title
 
         Returns:
             gspread Worksheet object
         """
+        # Return cached worksheet if available
+        if title in self._worksheets:
+            return self._worksheets[title]
+
         spreadsheet = self.get_spreadsheet()
 
         try:
@@ -141,6 +148,8 @@ class GoogleSheetsClient:
             worksheet = spreadsheet.add_worksheet(title=title, rows=1000, cols=50)
             logger.info(f"Created new worksheet: {title}")
 
+        # Cache the worksheet
+        self._worksheets[title] = worksheet
         return worksheet
 
     def setup_worksheets(self) -> dict[str, gspread.Worksheet]:
