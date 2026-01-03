@@ -105,39 +105,69 @@ class EmailNotifier:
         summary: dict,
         sheet_url: str,
     ) -> bool:
-        """Send a sync summary email.
+        """Send a comprehensive sync summary email.
 
         Args:
             stats: Sync statistics dict
-            summary: Sheet summary dict
+            summary: Sheet summary dict with detailed financials
             sheet_url: URL to the Google Sheet
 
         Returns:
             True if email was sent successfully
         """
-        subject = f"eBay Sync Complete - {summary.get('sold_items', 0)} Sales, ${summary.get('total_profit', 0):.2f} Profit"
+        # Format profit with color indicator
+        profit = summary.get('total_net_profit', 0) or summary.get('total_profit', 0)
+        profit_indicator = "+" if profit >= 0 else ""
 
-        body = f"""eBay Reseller Tracker - Daily Sync Complete
+        subject = f"eBay Digest: {summary.get('sold_items', 0)} Sales | ${summary.get('total_gross_revenue', 0) or summary.get('total_revenue', 0):.2f} Revenue"
 
-SYNC STATISTICS
----------------
-New Transactions: {stats.get('new_transactions', 0)}
-New Orders: {stats.get('new_orders', 0)}
-Updated Listings: {stats.get('updated_listings', 0)}
-Items Synced: {stats.get('items_synced', 0)}
+        # Build plain text body
+        body = f"""eBay Reseller Tracker - All-Time Summary
+{'=' * 50}
 
-SUMMARY
--------
-Total Sold: {summary.get('sold_items', 0)} items
+INVENTORY STATUS
+----------------
+Total Items Sold: {summary.get('sold_items', 0)}
 Active Listings: {summary.get('active_listings', 0)}
 Sell-Through Rate: {summary.get('sell_through_rate', 0):.1f}%
 
-FINANCIALS
-----------
-Total Revenue: ${summary.get('total_revenue', 0):.2f}
-Total Fees: ${summary.get('total_fees', 0):.2f}
-Total Profit: ${summary.get('total_profit', 0):.2f}
+MONEY IN (All Time)
+-------------------
+Item Sales: ${summary.get('total_final_sale_price', 0):.2f}
+Shipping Charged: ${summary.get('total_shipping_charged', 0):.2f}
+-----------------------------------------
+TOTAL REVENUE: ${summary.get('total_gross_revenue', 0) or summary.get('total_revenue', 0):.2f}
+
+MONEY OUT (All Time)
+--------------------
+eBay Fees:
+  Final Value Fees: ${summary.get('total_final_value_fee', 0):.2f}
+  Fixed Per-Order: ${summary.get('total_fixed_fee', 0):.2f}
+  Promoted Listings: ${summary.get('total_promoted_fee', 0):.2f}
+  International: ${summary.get('total_international_fee', 0):.2f}
+  Other Fees: ${summary.get('total_other_fees', 0):.2f}
+  -----------------------
+  TOTAL FEES: ${summary.get('total_fees', 0):.2f}
+
+Shipping Costs: ${summary.get('total_shipping_cost', 0):.2f}
+COGS (Items Sold): ${summary.get('total_cogs_sold', 0):.2f}
+Other Expenses: ${summary.get('total_expenses', 0):.2f}
+
+BOTTOM LINE
+-----------
+NET PROFIT: {profit_indicator}${profit:.2f}
+
+ROI PERFORMANCE
+---------------
+Median ROI: {summary.get('median_roi', 0):.1f}% (typical return per item)
 Average ROI: {summary.get('average_roi', 0):.1f}%
+Items with COGS data: {summary.get('items_with_cogs', 0)}/{summary.get('sold_items', 0)}
+
+INVENTORY VALUE
+---------------
+Active Inventory (at cost): ${summary.get('total_cogs_active', 0):.2f}
+
+Today's Sync: {stats.get('items_synced', 0)} items synced
 
 View full details: {sheet_url}
 
@@ -145,59 +175,153 @@ View full details: {sheet_url}
 eBay Reseller Tracker
 """
 
+        # Build HTML body
         html_body = f"""
 <!DOCTYPE html>
 <html>
 <head>
     <style>
-        body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-        .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-        .header {{ background: #0064d2; color: white; padding: 20px; text-align: center; }}
-        .section {{ margin: 20px 0; padding: 15px; background: #f5f5f5; border-radius: 5px; }}
-        .section h3 {{ margin-top: 0; color: #0064d2; }}
-        .stat {{ display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #ddd; }}
-        .stat:last-child {{ border-bottom: none; }}
-        .highlight {{ font-size: 24px; font-weight: bold; color: #28a745; }}
-        .btn {{ display: inline-block; background: #0064d2; color: white; padding: 10px 20px;
-                text-decoration: none; border-radius: 5px; margin-top: 15px; }}
-        .footer {{ text-align: center; color: #666; font-size: 12px; margin-top: 20px; }}
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.5; color: #333; margin: 0; padding: 0; background: #f5f5f5; }}
+        .container {{ max-width: 600px; margin: 0 auto; background: white; }}
+        .header {{ background: linear-gradient(135deg, #0064d2 0%, #003366 100%); color: white; padding: 30px 20px; text-align: center; }}
+        .header h1 {{ margin: 0 0 5px 0; font-size: 24px; }}
+        .header .subtitle {{ opacity: 0.9; font-size: 14px; }}
+        .section {{ padding: 20px; border-bottom: 1px solid #eee; }}
+        .section:last-of-type {{ border-bottom: none; }}
+        .section-title {{ font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: #666; margin-bottom: 15px; }}
+        .stat-row {{ display: flex; justify-content: space-between; padding: 8px 0; }}
+        .stat-row.indent {{ padding-left: 20px; font-size: 14px; color: #666; }}
+        .stat-row.total {{ font-weight: 600; border-top: 1px solid #ddd; margin-top: 5px; padding-top: 10px; }}
+        .stat-label {{ color: #555; }}
+        .stat-value {{ font-weight: 500; }}
+        .highlight-box {{ background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%); color: white; padding: 25px; text-align: center; margin: 20px; border-radius: 10px; }}
+        .highlight-box.negative {{ background: linear-gradient(135deg, #dc3545 0%, #bd2130 100%); }}
+        .highlight-box .amount {{ font-size: 36px; font-weight: bold; margin-bottom: 5px; }}
+        .highlight-box .label {{ font-size: 14px; opacity: 0.9; }}
+        .roi-box {{ background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 15px 0; }}
+        .roi-stat {{ display: flex; justify-content: space-between; align-items: center; padding: 10px 0; }}
+        .roi-stat .value {{ font-size: 24px; font-weight: bold; color: #0064d2; }}
+        .roi-stat .label {{ font-size: 12px; color: #666; }}
+        .btn {{ display: inline-block; background: #0064d2; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: 500; }}
+        .btn:hover {{ background: #0052a3; }}
+        .footer {{ text-align: center; padding: 20px; color: #999; font-size: 12px; background: #f8f9fa; }}
+        .inventory-badge {{ display: inline-block; background: #e3f2fd; color: #0064d2; padding: 5px 12px; border-radius: 20px; font-size: 14px; margin: 5px; }}
+        .divider {{ height: 1px; background: #eee; margin: 15px 0; }}
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>eBay Sync Complete</h1>
+            <h1>eBay Sales Digest</h1>
+            <div class="subtitle">All-Time Summary</div>
         </div>
 
+        <!-- Profit Highlight -->
+        <div class="highlight-box{' negative' if profit < 0 else ''}">
+            <div class="amount">{profit_indicator}${abs(profit):.2f}</div>
+            <div class="label">Total Net Profit</div>
+        </div>
+
+        <!-- Quick Stats -->
+        <div class="section" style="text-align: center; padding: 15px;">
+            <span class="inventory-badge">{summary.get('sold_items', 0)} Items Sold</span>
+            <span class="inventory-badge">{summary.get('active_listings', 0)} Active</span>
+            <span class="inventory-badge">{summary.get('sell_through_rate', 0):.0f}% Sell-Through</span>
+        </div>
+
+        <!-- Money In -->
         <div class="section">
-            <h3>Today's Highlights</h3>
-            <p class="highlight">${summary.get('total_profit', 0):.2f} Profit</p>
-            <div class="stat"><span>Items Sold:</span><strong>{summary.get('sold_items', 0)}</strong></div>
-            <div class="stat"><span>Revenue:</span><strong>${summary.get('total_revenue', 0):.2f}</strong></div>
-            <div class="stat"><span>Fees:</span><strong>${summary.get('total_fees', 0):.2f}</strong></div>
+            <div class="section-title">Money In</div>
+            <div class="stat-row">
+                <span class="stat-label">Item Sales</span>
+                <span class="stat-value">${summary.get('total_final_sale_price', 0):.2f}</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Shipping Charged</span>
+                <span class="stat-value">${summary.get('total_shipping_charged', 0):.2f}</span>
+            </div>
+            <div class="stat-row total">
+                <span class="stat-label">TOTAL REVENUE</span>
+                <span class="stat-value" style="color: #28a745;">${summary.get('total_gross_revenue', 0) or summary.get('total_revenue', 0):.2f}</span>
+            </div>
         </div>
 
+        <!-- Money Out -->
         <div class="section">
-            <h3>Sync Statistics</h3>
-            <div class="stat"><span>New Transactions:</span><strong>{stats.get('new_transactions', 0)}</strong></div>
-            <div class="stat"><span>New Orders:</span><strong>{stats.get('new_orders', 0)}</strong></div>
-            <div class="stat"><span>Updated Listings:</span><strong>{stats.get('updated_listings', 0)}</strong></div>
-            <div class="stat"><span>Items Synced:</span><strong>{stats.get('items_synced', 0)}</strong></div>
+            <div class="section-title">Money Out</div>
+
+            <div class="stat-row">
+                <span class="stat-label">eBay Fees</span>
+                <span class="stat-value">${summary.get('total_fees', 0):.2f}</span>
+            </div>
+            <div class="stat-row indent">
+                <span class="stat-label">Final Value Fees</span>
+                <span class="stat-value">${summary.get('total_final_value_fee', 0):.2f}</span>
+            </div>
+            <div class="stat-row indent">
+                <span class="stat-label">Fixed Per-Order</span>
+                <span class="stat-value">${summary.get('total_fixed_fee', 0):.2f}</span>
+            </div>
+            <div class="stat-row indent">
+                <span class="stat-label">Promoted Listings</span>
+                <span class="stat-value">${summary.get('total_promoted_fee', 0):.2f}</span>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="stat-row">
+                <span class="stat-label">Shipping Costs</span>
+                <span class="stat-value">${summary.get('total_shipping_cost', 0):.2f}</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Cost of Goods Sold</span>
+                <span class="stat-value">${summary.get('total_cogs_sold', 0):.2f}</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Other Expenses</span>
+                <span class="stat-value">${summary.get('total_expenses', 0):.2f}</span>
+            </div>
         </div>
 
+        <!-- ROI Performance -->
         <div class="section">
-            <h3>Inventory Status</h3>
-            <div class="stat"><span>Active Listings:</span><strong>{summary.get('active_listings', 0)}</strong></div>
-            <div class="stat"><span>Sell-Through Rate:</span><strong>{summary.get('sell_through_rate', 0):.1f}%</strong></div>
-            <div class="stat"><span>Average ROI:</span><strong>{summary.get('average_roi', 0):.1f}%</strong></div>
+            <div class="section-title">ROI Performance</div>
+            <div class="roi-box">
+                <div class="roi-stat">
+                    <div>
+                        <div class="value">{summary.get('median_roi', 0):.1f}%</div>
+                        <div class="label">Median ROI (typical return)</div>
+                    </div>
+                    <div style="text-align: right;">
+                        <div class="value">{summary.get('average_roi', 0):.1f}%</div>
+                        <div class="label">Average ROI</div>
+                    </div>
+                </div>
+            </div>
+            <div style="font-size: 12px; color: #666; text-align: center;">
+                Based on {summary.get('items_with_cogs', 0)} of {summary.get('sold_items', 0)} items with COGS data
+            </div>
         </div>
 
-        <div style="text-align: center;">
+        <!-- Inventory Value -->
+        <div class="section">
+            <div class="section-title">Active Inventory</div>
+            <div class="stat-row">
+                <span class="stat-label">Inventory Value (at cost)</span>
+                <span class="stat-value">${summary.get('total_cogs_active', 0):.2f}</span>
+            </div>
+        </div>
+
+        <!-- CTA -->
+        <div class="section" style="text-align: center;">
             <a href="{sheet_url}" class="btn">View Full Report</a>
+            <div style="margin-top: 10px; font-size: 12px; color: #666;">
+                Today's sync: {stats.get('items_synced', 0)} items updated
+            </div>
         </div>
 
         <div class="footer">
-            <p>eBay Reseller Tracker - Automated Daily Sync</p>
+            eBay Reseller Tracker - Automated Daily Sync
         </div>
     </div>
 </body>

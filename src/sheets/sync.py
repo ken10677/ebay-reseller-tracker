@@ -1,5 +1,7 @@
 """Sync logic for eBay data to Google Sheets."""
 
+import decimal
+import statistics
 from datetime import datetime, date
 from decimal import Decimal
 from typing import Any, Optional
@@ -472,56 +474,190 @@ class SheetSync:
         logger.info(f"Logged daily metrics for {today}")
 
     def get_sync_summary(self) -> dict[str, Any]:
-        """Get a summary of the current sheet state.
+        """Get a comprehensive summary of the current sheet state.
 
         Returns:
-            Dict with summary statistics
+            Dict with detailed summary statistics including:
+            - Item counts (total, sold, active)
+            - Financial totals (revenue, fees breakdown, COGS, profit)
+            - ROI statistics (median and average)
+            - Shipping data
         """
         values = self.sheets.get_all_values("Inventory")
 
+        # Column indices (0-indexed) based on formulas.py
+        COL = {
+            "cogs": 8,           # I - COGS
+            "status": 13,        # N - Status
+            "final_sale_price": 19,  # T - Final Sale Price
+            "shipping_charged": 20,   # U - Shipping Charged
+            "actual_shipping_cost": 21,  # V - Actual Shipping Cost
+            "final_value_fee": 23,    # X - Final Value Fee
+            "fixed_per_order_fee": 24,  # Y - Fixed Per-Order Fee
+            "promoted_listing_fee": 25,  # Z - Promoted Listing Fee
+            "international_fee": 26,  # AA - International Fee
+            "other_fees": 27,    # AB - Other Fees
+            "total_fees": 28,    # AC - Total Fees (formula)
+            "gross_revenue": 29,  # AD - Gross Revenue (formula)
+            "net_profit": 31,    # AF - Net Profit (formula)
+            "roi_percent": 32,   # AG - ROI % (formula)
+        }
+
+        def parse_decimal(row: list, col_idx: int) -> Optional[Decimal]:
+            """Safely parse a decimal from a row."""
+            if col_idx < len(row) and row[col_idx]:
+                try:
+                    return Decimal(str(row[col_idx]).replace("$", "").replace(",", ""))
+                except (ValueError, TypeError, decimal.InvalidOperation):
+                    pass
+            return None
+
+        # Initialize counters
         total = len(values) - 1  # Exclude header
         active = 0
         sold = 0
-        total_revenue = Decimal(0)
-        total_profit = Decimal(0)
-        total_fees = Decimal(0)
+
+        # Financial totals
+        total_gross_revenue = Decimal(0)
+        total_final_sale_price = Decimal(0)
+        total_shipping_charged = Decimal(0)
+        total_shipping_cost = Decimal(0)
+        total_cogs_sold = Decimal(0)  # COGS for sold items
+        total_cogs_active = Decimal(0)  # COGS for active inventory
+        total_final_value_fee = Decimal(0)
+        total_fixed_fee = Decimal(0)
+        total_promoted_fee = Decimal(0)
+        total_international_fee = Decimal(0)
+        total_other_fees = Decimal(0)
+        total_net_profit = Decimal(0)
+
+        # ROI tracking for median/average
+        roi_values = []
+        items_with_cogs = 0
+        items_with_profit = 0
 
         for row in values[1:]:
             if len(row) < 14:
                 continue
 
-            status = row[13] if len(row) > 13 else ""
+            status = row[COL["status"]] if COL["status"] < len(row) else ""
+
             if status == "Active":
                 active += 1
+                # Count active inventory value
+                cogs = parse_decimal(row, COL["cogs"])
+                if cogs:
+                    total_cogs_active += cogs
             elif status == "Sold":
                 sold += 1
 
-                # Parse numeric values
-                if len(row) > 29 and row[29]:
+                # Parse all financial fields
+                final_sale = parse_decimal(row, COL["final_sale_price"])
+                shipping_charged = parse_decimal(row, COL["shipping_charged"])
+                shipping_cost = parse_decimal(row, COL["actual_shipping_cost"])
+                cogs = parse_decimal(row, COL["cogs"])
+                fvf = parse_decimal(row, COL["final_value_fee"])
+                fixed_fee = parse_decimal(row, COL["fixed_per_order_fee"])
+                promo_fee = parse_decimal(row, COL["promoted_listing_fee"])
+                intl_fee = parse_decimal(row, COL["international_fee"])
+                other_fee = parse_decimal(row, COL["other_fees"])
+                gross_rev = parse_decimal(row, COL["gross_revenue"])
+                net_profit = parse_decimal(row, COL["net_profit"])
+                roi = parse_decimal(row, COL["roi_percent"])
+
+                # Accumulate totals
+                if final_sale:
+                    total_final_sale_price += final_sale
+                if shipping_charged:
+                    total_shipping_charged += shipping_charged
+                if shipping_cost:
+                    total_shipping_cost += shipping_cost
+                if cogs:
+                    total_cogs_sold += cogs
+                    items_with_cogs += 1
+                if fvf:
+                    total_final_value_fee += fvf
+                if fixed_fee:
+                    total_fixed_fee += fixed_fee
+                if promo_fee:
+                    total_promoted_fee += promo_fee
+                if intl_fee:
+                    total_international_fee += intl_fee
+                if other_fee:
+                    total_other_fees += other_fee
+                if gross_rev:
+                    total_gross_revenue += gross_rev
+                if net_profit:
+                    total_net_profit += net_profit
+                    items_with_profit += 1
+                if roi is not None:
+                    roi_values.append(float(roi))
+
+        # Calculate total fees
+        total_all_fees = (
+            total_final_value_fee + total_fixed_fee + total_promoted_fee +
+            total_international_fee + total_other_fees
+        )
+
+        # Calculate shipping profit/loss
+        shipping_profit_loss = total_shipping_charged - total_shipping_cost
+
+        # Calculate ROI statistics
+        median_roi = statistics.median(roi_values) if roi_values else 0
+        average_roi = statistics.mean(roi_values) if roi_values else 0
+
+        # Get expenses from Expenses sheet
+        total_expenses = Decimal(0)
+        try:
+            expense_values = self.sheets.get_all_values("Expenses")
+            for row in expense_values[1:]:  # Skip header
+                if len(row) > 5 and row[5]:  # Amount column
                     try:
-                        total_revenue += Decimal(row[29])
+                        total_expenses += Decimal(str(row[5]).replace("$", "").replace(",", ""))
                     except (ValueError, TypeError):
                         pass
-                if len(row) > 28 and row[28]:
-                    try:
-                        total_fees += Decimal(row[28])
-                    except (ValueError, TypeError):
-                        pass
-                if len(row) > 31 and row[31]:
-                    try:
-                        total_profit += Decimal(row[31])
-                    except (ValueError, TypeError):
-                        pass
+        except Exception:
+            pass  # Expenses sheet might not exist
 
         return {
+            # Item counts
             "total_items": total,
             "active_listings": active,
             "sold_items": sold,
             "sell_through_rate": (sold / total * 100) if total > 0 else 0,
-            "total_revenue": float(total_revenue),
-            "total_fees": float(total_fees),
-            "total_profit": float(total_profit),
-            "average_roi": (float(total_profit) / float(total_revenue) * 100)
-            if total_revenue > 0
-            else 0,
+
+            # Revenue breakdown
+            "total_gross_revenue": float(total_gross_revenue),
+            "total_final_sale_price": float(total_final_sale_price),
+            "total_shipping_charged": float(total_shipping_charged),
+
+            # Cost breakdown
+            "total_cogs_sold": float(total_cogs_sold),
+            "total_cogs_active": float(total_cogs_active),
+            "total_shipping_cost": float(total_shipping_cost),
+            "shipping_profit_loss": float(shipping_profit_loss),
+
+            # Fees breakdown
+            "total_fees": float(total_all_fees),
+            "total_final_value_fee": float(total_final_value_fee),
+            "total_fixed_fee": float(total_fixed_fee),
+            "total_promoted_fee": float(total_promoted_fee),
+            "total_international_fee": float(total_international_fee),
+            "total_other_fees": float(total_other_fees),
+
+            # Other expenses
+            "total_expenses": float(total_expenses),
+
+            # Profit
+            "total_net_profit": float(total_net_profit),
+
+            # ROI statistics
+            "median_roi": median_roi,
+            "average_roi": average_roi,
+            "items_with_cogs": items_with_cogs,
+            "items_with_profit": items_with_profit,
+
+            # Legacy fields for compatibility
+            "total_revenue": float(total_gross_revenue),
+            "total_profit": float(total_net_profit),
         }
