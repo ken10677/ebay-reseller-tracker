@@ -320,6 +320,39 @@ class GoogleSheetsClient:
         """
         return f"https://docs.google.com/spreadsheets/d/{self.sheet_id}"
 
+    def clear_worksheet_data(self, worksheet_name: str, keep_headers: bool = True) -> int:
+        """Clear all data from a worksheet.
+
+        Args:
+            worksheet_name: Name of the worksheet
+            keep_headers: If True, preserve the first row (headers)
+
+        Returns:
+            Number of rows cleared
+        """
+        worksheet = self.get_worksheet(worksheet_name)
+        all_values = worksheet.get_all_values()
+        rows_to_clear = len(all_values) - (1 if keep_headers else 0)
+
+        if rows_to_clear <= 0:
+            logger.info(f"No data rows to clear in {worksheet_name}")
+            return 0
+
+        if keep_headers:
+            # Clear all rows except the header by batch deleting
+            if len(all_values) > 1:
+                # Use batch_clear for efficiency
+                end_row = len(all_values)
+                worksheet.batch_clear([f"A2:ZZ{end_row}"])
+                # Also delete empty rows to reset row count
+                worksheet.delete_rows(2, end_row)
+                logger.info(f"Cleared {rows_to_clear} rows from {worksheet_name} (headers preserved)")
+        else:
+            worksheet.clear()
+            logger.info(f"Cleared all data from {worksheet_name}")
+
+        return rows_to_clear
+
     @staticmethod
     def _col_to_letter(col: int) -> str:
         """Convert column number to letter(s).

@@ -1,5 +1,6 @@
 """Main entry point for eBay Reseller Tracker sync."""
 
+import argparse
 import sys
 from datetime import datetime, date, timedelta
 from decimal import Decimal
@@ -27,6 +28,15 @@ def main() -> int:
     Returns:
         Exit code (0 for success, 1 for failure)
     """
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="eBay Reseller Tracker Sync")
+    parser.add_argument(
+        "--clear-inventory",
+        action="store_true",
+        help="Clear the Inventory sheet before syncing (removes duplicates)",
+    )
+    args = parser.parse_args()
+
     # Load configuration
     try:
         config = Config.from_env()
@@ -111,6 +121,12 @@ def main() -> int:
     except Exception as e:
         logger.error(f"Failed to set up worksheets: {e}")
         return 1
+
+    # Clear inventory if requested (to remove duplicates)
+    if args.clear_inventory:
+        logger.warning("Clearing Inventory sheet to remove duplicates...")
+        cleared = sheets.clear_worksheet_data("Inventory", keep_headers=True)
+        logger.info(f"Cleared {cleared} rows from Inventory sheet")
 
     # Load existing items
     sync.load_existing_items()
@@ -274,7 +290,17 @@ def main() -> int:
     if not orders_by_item and sale_transactions:
         logger.info(f"Creating items from {len(sale_transactions)} sale transactions...")
 
+        # Track which transactions we've processed to avoid duplicates
+        processed_tx_ids = set()
+
         for tx in sale_transactions:
+            # Skip if we already processed this transaction
+            if tx.transaction_id in processed_tx_ids:
+                logger.debug(f"Skipping duplicate transaction {tx.transaction_id}")
+                continue
+            processed_tx_ids.add(tx.transaction_id)
+
+            # Prefer item_id over order_id over transaction_id for consistency
             item_id = tx.item_id or tx.order_id or tx.transaction_id
             if not item_id or item_id in items_to_sync:
                 continue

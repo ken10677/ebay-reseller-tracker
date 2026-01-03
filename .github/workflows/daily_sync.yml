@@ -13,6 +13,11 @@ on:
         required: false
         default: 'false'
         type: boolean
+      clear_inventory:
+        description: 'Clear inventory sheet before sync (removes duplicates)'
+        required: false
+        default: 'false'
+        type: boolean
 
 jobs:
   sync:
@@ -57,7 +62,7 @@ jobs:
           SYNC_START_DATE: '2025-11-01'
           LOG_LEVEL: ${{ github.event.inputs.debug == 'true' && 'DEBUG' || 'INFO' }}
         run: |
-          python -m src.main
+          python -m src.main ${{ github.event.inputs.clear_inventory == 'true' && '--clear-inventory' || '' }}
 
       - name: Check for token expiry warning
         if: failure()
