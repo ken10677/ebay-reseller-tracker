@@ -150,10 +150,14 @@ class FinancesClient:
         tx_type = data.get("transactionType", "")
         if tx_type == "SALE":
             # Use INFO level temporarily to see structure in GitHub Actions logs
-            logger.info(f"SALE tx keys: {list(data.keys())}")
-            # Log orderLineItems structure if present
+            total_amount = data.get("amount", {}).get("value", "0")
+            fee_basis = data.get("totalFeeBasisAmount", {}).get("value", "0")
+            tax = data.get("ebayCollectedTaxAmount", {}).get("value", "0") if "ebayCollectedTaxAmount" in data else "0"
+            logger.info(f"SALE: amount=${total_amount}, feeBasis=${fee_basis}, tax=${tax}")
+            # Log orderLineItems amounts
             for i, li in enumerate(data.get("orderLineItems", [])):
-                logger.info(f"  lineItem[{i}] keys: {list(li.keys())}")
+                li_fee_basis = li.get("feeBasisAmount", {}).get("value", "0")
+                logger.info(f"  lineItem[{i}]: feeBasisAmount=${li_fee_basis}")
 
         # Parse amount
         amount_data = data.get("amount", {})
