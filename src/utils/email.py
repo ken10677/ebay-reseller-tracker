@@ -115,9 +115,13 @@ class EmailNotifier:
         Returns:
             True if email was sent successfully
         """
-        # Format profit with color indicator
-        profit = summary.get('total_net_profit', 0) or summary.get('total_profit', 0)
-        profit_indicator = "+" if profit >= 0 else ""
+        # Format net from eBay (profit before COGS) for the highlight box
+        net_from_ebay = summary.get('total_net_from_ebay', 0)
+        net_indicator = "+" if net_from_ebay >= 0 else ""
+
+        # Net profit (after COGS) for the bottom line section
+        net_profit = summary.get('total_net_profit', 0) or summary.get('total_profit', 0)
+        profit_indicator = "+" if net_profit >= 0 else ""
 
         subject = f"eBay Digest: {summary.get('sold_items', 0)} Sales | ${summary.get('total_gross_revenue', 0) or summary.get('total_revenue', 0):.2f} Revenue"
 
@@ -155,7 +159,10 @@ Other Expenses: ${summary.get('total_expenses', 0):.2f}
 
 BOTTOM LINE
 -----------
-NET PROFIT: {profit_indicator}${profit:.2f}
+NET FROM EBAY: {net_indicator}${net_from_ebay:.2f}
+  (Revenue - Fees - Shipping)
+NET PROFIT: {profit_indicator}${net_profit:.2f}
+  (After COGS, requires item cost data)
 
 ROI PERFORMANCE
 ---------------
@@ -216,10 +223,11 @@ eBay Reseller Tracker
             <div class="subtitle">All-Time Summary</div>
         </div>
 
-        <!-- Profit Highlight -->
-        <div class="highlight-box{' negative' if profit < 0 else ''}">
-            <div class="amount">{profit_indicator}${abs(profit):.2f}</div>
-            <div class="label">Total Net Profit</div>
+        <!-- Net from eBay Highlight (Revenue - Fees - Shipping, before COGS) -->
+        <div class="highlight-box{' negative' if net_from_ebay < 0 else ''}">
+            <div class="amount">{net_indicator}${abs(net_from_ebay):.2f}</div>
+            <div class="label">Net from eBay</div>
+            <div style="font-size: 11px; opacity: 0.8; margin-top: 5px;">Revenue - Fees - Shipping</div>
         </div>
 
         <!-- Quick Stats -->
@@ -280,6 +288,18 @@ eBay Reseller Tracker
             <div class="stat-row">
                 <span class="stat-label">Other Expenses</span>
                 <span class="stat-value">${summary.get('total_expenses', 0):.2f}</span>
+            </div>
+        </div>
+
+        <!-- Bottom Line (Net Profit after COGS) -->
+        <div class="section" style="background: #f8f9fa;">
+            <div class="section-title">Bottom Line (After COGS)</div>
+            <div class="stat-row total" style="border-top: none; padding-top: 0;">
+                <span class="stat-label">Net Profit</span>
+                <span class="stat-value" style="color: {'#28a745' if net_profit >= 0 else '#dc3545'};">{profit_indicator}${abs(net_profit):.2f}</span>
+            </div>
+            <div style="font-size: 12px; color: #666; text-align: center; margin-top: 10px;">
+                Based on {summary.get('items_with_cogs', 0)} of {summary.get('sold_items', 0)} items with COGS data entered
             </div>
         </div>
 

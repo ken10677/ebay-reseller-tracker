@@ -499,7 +499,8 @@ class SheetSync:
             "other_fees": 27,    # AB - Other Fees
             "total_fees": 28,    # AC - Total Fees (formula)
             "gross_revenue": 29,  # AD - Gross Revenue (formula)
-            "net_profit": 31,    # AF - Net Profit (formula)
+            "net_from_ebay": 30,  # AE - Net from eBay (formula: Revenue - Fees - Shipping)
+            "net_profit": 31,    # AF - Net Profit (formula: Net from eBay - COGS)
             "roi_percent": 32,   # AG - ROI % (formula)
         }
 
@@ -529,6 +530,7 @@ class SheetSync:
         total_promoted_fee = Decimal(0)
         total_international_fee = Decimal(0)
         total_other_fees = Decimal(0)
+        total_net_from_ebay = Decimal(0)  # Revenue - Fees - Shipping (no COGS)
         total_net_profit = Decimal(0)
 
         # ROI tracking for median/average
@@ -562,6 +564,7 @@ class SheetSync:
                 intl_fee = parse_decimal(row, COL["international_fee"])
                 other_fee = parse_decimal(row, COL["other_fees"])
                 gross_rev = parse_decimal(row, COL["gross_revenue"])
+                net_ebay = parse_decimal(row, COL["net_from_ebay"])
                 net_profit = parse_decimal(row, COL["net_profit"])
                 roi = parse_decimal(row, COL["roi_percent"])
 
@@ -587,6 +590,8 @@ class SheetSync:
                     total_other_fees += other_fee
                 if gross_rev:
                     total_gross_revenue += gross_rev
+                if net_ebay:
+                    total_net_from_ebay += net_ebay
                 if net_profit:
                     total_net_profit += net_profit
                     items_with_profit += 1
@@ -649,6 +654,7 @@ class SheetSync:
             "total_expenses": float(total_expenses),
 
             # Profit
+            "total_net_from_ebay": float(total_net_from_ebay),  # Revenue - Fees - Shipping (no COGS)
             "total_net_profit": float(total_net_profit),
 
             # ROI statistics
