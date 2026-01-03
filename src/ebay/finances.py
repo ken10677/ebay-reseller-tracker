@@ -146,30 +146,33 @@ class FinancesClient:
         Returns:
             Transaction object
         """
-        # Debug: Log raw transaction data for SALE transactions to understand structure
+        # Note on Finances API fields for SALE transactions:
+        # - amount: Net to seller AFTER fees are deducted
+        # - totalFeeBasisAmount: Gross sales (item + shipping) BEFORE fees
+        # - ebayCollectedTaxAmount: Sales tax collected by eBay (not included in amount or feeBasis)
         tx_type = data.get("transactionType", "")
-        if tx_type == "SALE":
-            # Use INFO level temporarily to see structure in GitHub Actions logs
-            total_amount = data.get("amount", {}).get("value", "0")
-            fee_basis = data.get("totalFeeBasisAmount", {}).get("value", "0")
-            tax = data.get("ebayCollectedTaxAmount", {}).get("value", "0") if "ebayCollectedTaxAmount" in data else "0"
-            logger.info(f"SALE: amount=${total_amount}, feeBasis=${fee_basis}, tax=${tax}")
-            # Log orderLineItems amounts
-            for i, li in enumerate(data.get("orderLineItems", [])):
-                li_fee_basis = li.get("feeBasisAmount", {}).get("value", "0")
-                logger.info(f"  lineItem[{i}]: feeBasisAmount=${li_fee_basis}")
 
-        # Parse amount
+        # Parse amount (net to seller after fees)
         amount_data = data.get("amount", {})
         amount = Amount(
             value=Decimal(amount_data.get("value", "0")),
             currency=amount_data.get("currency", "USD"),
         )
 
-        # Parse fee amount if present
-        fee_amount = None
+        # Parse fee basis amount (gross item + shipping, before fees)
+        # This is what eBay fees are calculated on
+        fee_basis_amount = None
         if "totalFeeBasisAmount" in data:
-            fee_data = data["totalFeeBasisAmount"]
+            fee_basis_data = data["totalFeeBasisAmount"]
+            fee_basis_amount = Amount(
+                value=Decimal(fee_basis_data.get("value", "0")),
+                currency=fee_basis_data.get("currency", "USD"),
+            )
+
+        # Parse total fee amount if present
+        fee_amount = None
+        if "totalFeeAmount" in data:
+            fee_data = data["totalFeeAmount"]
             fee_amount = Amount(
                 value=Decimal(fee_data.get("value", "0")),
                 currency=fee_data.get("currency", "USD"),
@@ -303,6 +306,7 @@ class FinancesClient:
             item_id=item_id,
             title=item_title,
             amount=amount,
+            fee_basis_amount=fee_basis_amount,
             item_amount=item_amount,
             shipping_amount=shipping_amount,
             fee_amount=fee_amount,

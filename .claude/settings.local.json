@@ -17,7 +17,9 @@
       "Bash(pip install:*)",
       "Bash(where:*)",
       "Bash(\"C:\\Users\\monst\\miniconda3\\python.exe\" -m src.main)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(paste:*)",
+      "Bash(bc:*)"
     ]
   }
 }

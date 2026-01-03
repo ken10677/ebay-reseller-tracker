@@ -298,8 +298,7 @@ def main() -> int:
     if not orders_by_item and sale_transactions:
         logger.info(f"Creating items from {len(sale_transactions)} sale transactions...")
 
-        # Track shipping revenue totals for logging
-        total_shipping_revenue = Decimal(0)
+        # Track gross revenue for logging
         total_item_revenue = Decimal(0)
 
         # Track which transactions we've processed to avoid duplicates
@@ -346,12 +345,24 @@ def main() -> int:
             # Note: Finances API doesn't include item titles - manual entry may be needed
             item_title = tx.title or tx.description or "(Enter title manually)"
 
-            # Use item_amount if available (item price without shipping)
-            # Otherwise fall back to total amount
-            sale_price = tx.item_amount.value if tx.item_amount else tx.amount.value
+            # IMPORTANT: The Finances API 'amount' is NET (after fees deducted).
+            # 'fee_basis_amount' is GROSS (item + shipping, before fees).
+            # We need to use fee_basis_amount as the gross sale price.
+            # The sheet formulas will calculate net by subtracting fees.
 
-            # Get shipping charged to buyer from transaction
-            shipping_charged = tx.shipping_amount.value if tx.shipping_amount else None
+            # Use fee_basis_amount as the total sale price (includes shipping)
+            # If not available, fall back to amount (which is net)
+            if tx.fee_basis_amount:
+                # fee_basis is gross (item + shipping)
+                # For now, put the whole amount in final_sale_price since we can't separate
+                # The sheet formula gross_revenue = final_sale_price + shipping_charged
+                # So if we can't separate, just put it all in final_sale_price
+                sale_price = tx.fee_basis_amount.value
+                shipping_charged = None  # Can't separate from Finances API
+            else:
+                # Fallback for non-SALE transactions or if fee_basis not present
+                sale_price = tx.amount.value
+                shipping_charged = None
 
             item = SyncedItem(
                 item_id=item_id,
@@ -368,17 +379,15 @@ def main() -> int:
             )
             items_to_sync[item_id] = item
 
-            # Track totals for logging
+            # Track totals for logging (sale_price now includes shipping since we use fee_basis)
             total_item_revenue += sale_price
-            if shipping_charged:
-                total_shipping_revenue += shipping_charged
 
             # Build order_id -> item_id lookup for matching fees later
             if tx.order_id:
                 order_to_item[tx.order_id] = item_id
 
         logger.info(f"Created {len(items_to_sync)} items from transactions")
-        logger.info(f"  Item revenue: ${total_item_revenue:.2f}, Shipping revenue: ${total_shipping_revenue:.2f}")
+        logger.info(f"  Gross revenue (item + shipping): ${total_item_revenue:.2f}")
 
     # Step 4c: Apply promoted listing fees from NON_SALE_CHARGE transactions
     if non_sale_charges:

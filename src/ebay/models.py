@@ -80,7 +80,13 @@ class FeeBreakdown(BaseModel):
 
 
 class Transaction(BaseModel):
-    """eBay financial transaction."""
+    """eBay financial transaction.
+
+    Note on amount fields for SALE transactions:
+    - amount: Net to seller AFTER eBay fees are deducted
+    - fee_basis_amount: Gross sales (item + shipping) BEFORE fees - this is what fees are calculated on
+    - The difference (fee_basis - amount) equals total eBay fees
+    """
 
     transaction_id: str = Field(..., description="Unique transaction ID")
     transaction_type: TransactionType = Field(..., description="Type of transaction")
@@ -88,7 +94,8 @@ class Transaction(BaseModel):
     order_id: Optional[str] = Field(None, description="Associated order ID")
     item_id: Optional[str] = Field(None, description="Associated item/listing ID")
     title: Optional[str] = Field(None, description="Item title from line items")
-    amount: Amount = Field(..., description="Transaction amount")
+    amount: Amount = Field(..., description="Net amount to seller (after fees deducted)")
+    fee_basis_amount: Optional[Amount] = Field(None, description="Gross amount (item + shipping) before fees")
     item_amount: Optional[Amount] = Field(None, description="Item price (without shipping)")
     shipping_amount: Optional[Amount] = Field(None, description="Shipping charged to buyer")
     fee_amount: Optional[Amount] = Field(None, description="Total fees for this transaction")
