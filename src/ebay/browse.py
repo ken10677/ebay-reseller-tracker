@@ -118,6 +118,11 @@ class BrowseClient:
     def enrich_items_with_titles(self, items: dict) -> int:
         """Enrich a dict of items with titles from Browse API.
 
+        Note: Browse API only works for ACTIVE listings. Once an item sells
+        and the listing ends, it's removed from the public catalog and
+        cannot be looked up. This method is most useful for enriching
+        items that are still listed or were recently listed.
+
         Args:
             items: Dict of item_id -> SyncedItem
 
@@ -125,19 +130,24 @@ class BrowseClient:
             Number of items enriched
         """
         enriched = 0
+        attempted = 0
 
         for item_id, item in items.items():
             # Skip if already has a real title
             if item.title and not item.title.startswith("(") and item.title != item_id:
                 continue
 
+            attempted += 1
             title = self.get_item_title(item_id)
             if title:
                 item.title = title
                 enriched += 1
                 logger.debug(f"Enriched item {item_id} with title: {title[:50]}...")
 
-        if enriched:
-            logger.info(f"Enriched {enriched} items with titles from Browse API")
+        if attempted > 0:
+            logger.info(
+                f"Browse API: enriched {enriched}/{attempted} items "
+                f"(sold items may not be available in public catalog)"
+            )
 
         return enriched
