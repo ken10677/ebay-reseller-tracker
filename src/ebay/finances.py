@@ -149,16 +149,11 @@ class FinancesClient:
         # Debug: Log raw transaction data for SALE transactions to understand structure
         tx_type = data.get("transactionType", "")
         if tx_type == "SALE":
-            logger.debug(f"SALE transaction raw data keys: {list(data.keys())}")
+            # Use INFO level temporarily to see structure in GitHub Actions logs
+            logger.info(f"SALE tx keys: {list(data.keys())}")
             # Log orderLineItems structure if present
             for i, li in enumerate(data.get("orderLineItems", [])):
-                logger.debug(f"  orderLineItem[{i}] keys: {list(li.keys())}")
-                if "deliveryCost" in li:
-                    logger.debug(f"    deliveryCost: {li['deliveryCost']}")
-                if "totalAmount" in li:
-                    logger.debug(f"    totalAmount: {li['totalAmount']}")
-                if "lineItemAmount" in li:
-                    logger.debug(f"    lineItemAmount: {li['lineItemAmount']}")
+                logger.info(f"  lineItem[{i}] keys: {list(li.keys())}")
 
         # Parse amount
         amount_data = data.get("amount", {})
