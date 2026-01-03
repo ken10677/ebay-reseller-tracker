@@ -231,10 +231,14 @@ class FinancesClient:
                 order_id = ref.get("referenceId")
                 break
 
-        # Log all reference types for shipping labels to help debug
-        if tx_type == TransactionType.SHIPPING_LABEL and references:
-            ref_types = [f"{r.get('referenceType')}={r.get('referenceId')}" for r in references]
-            logger.debug(f"Shipping label references: {ref_types}")
+        # Log all reference types for various transaction types to help debug
+        if references:
+            if tx_type == TransactionType.SHIPPING_LABEL:
+                ref_types = [f"{r.get('referenceType')}={r.get('referenceId')}" for r in references]
+                logger.debug(f"Shipping label references: {ref_types}")
+            elif tx_type == TransactionType.SALE:
+                ref_types = [f"{r.get('referenceType')}={r.get('referenceId')}" for r in references]
+                logger.debug(f"SALE references: {ref_types}")
 
         # Get item ID and title from order line items
         # Note: Finances API doesn't include item titles - only financial data
