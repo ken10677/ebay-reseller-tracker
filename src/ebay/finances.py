@@ -146,6 +146,20 @@ class FinancesClient:
         Returns:
             Transaction object
         """
+        # Debug: Log raw transaction data for SALE transactions to understand structure
+        tx_type = data.get("transactionType", "")
+        if tx_type == "SALE":
+            logger.debug(f"SALE transaction raw data keys: {list(data.keys())}")
+            # Log orderLineItems structure if present
+            for i, li in enumerate(data.get("orderLineItems", [])):
+                logger.debug(f"  orderLineItem[{i}] keys: {list(li.keys())}")
+                if "deliveryCost" in li:
+                    logger.debug(f"    deliveryCost: {li['deliveryCost']}")
+                if "totalAmount" in li:
+                    logger.debug(f"    totalAmount: {li['totalAmount']}")
+                if "lineItemAmount" in li:
+                    logger.debug(f"    lineItemAmount: {li['lineItemAmount']}")
+
         # Parse amount
         amount_data = data.get("amount", {})
         amount = Amount(
@@ -232,11 +246,13 @@ class FinancesClient:
                 break
 
 
-        # Get item ID and title from order line items
+        # Get item ID, title, and shipping from order line items
         # Note: Finances API doesn't include item titles - only financial data
         # Titles would need to come from Fulfillment API (requires OAuth with proper scopes)
         item_id = None
         item_title = None
+        item_amount = None
+        shipping_amount = None
         line_items = data.get("orderLineItems", [])
         if line_items:
             first_item = line_items[0]
@@ -246,6 +262,40 @@ class FinancesClient:
             if not item_id:
                 item_id = first_item.get("lineItemId")
 
+            # Parse item amount (price without shipping)
+            # The lineItemAmount or itemPrice field contains just the item price
+            if "lineItemAmount" in first_item:
+                li_amount = first_item["lineItemAmount"]
+                item_amount = Amount(
+                    value=Decimal(li_amount.get("value", "0")),
+                    currency=li_amount.get("currency", "USD"),
+                )
+
+            # Parse shipping amount from deliveryCost
+            if "deliveryCost" in first_item:
+                dc = first_item["deliveryCost"]
+                shipping_amount = Amount(
+                    value=Decimal(dc.get("value", "0")),
+                    currency=dc.get("currency", "USD"),
+                )
+
+        # Sum up shipping from all line items if there are multiple
+        total_shipping = Decimal(0)
+        total_item_amount = Decimal(0)
+        for li in line_items:
+            if "deliveryCost" in li:
+                dc = li["deliveryCost"]
+                total_shipping += Decimal(dc.get("value", "0"))
+            if "lineItemAmount" in li:
+                la = li["lineItemAmount"]
+                total_item_amount += Decimal(la.get("value", "0"))
+
+        # If we found shipping across all line items, use the total
+        if total_shipping > 0:
+            shipping_amount = Amount(value=total_shipping, currency="USD")
+        if total_item_amount > 0:
+            item_amount = Amount(value=total_item_amount, currency="USD")
+
         return Transaction(
             transaction_id=data.get("transactionId", ""),
             transaction_type=tx_type,
@@ -254,6 +304,8 @@ class FinancesClient:
             item_id=item_id,
             title=item_title,
             amount=amount,
+            item_amount=item_amount,
+            shipping_amount=shipping_amount,
             fee_amount=fee_amount,
             fee_breakdown=fee_breakdown,
             payout_id=data.get("payoutId"),

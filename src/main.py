@@ -298,6 +298,10 @@ def main() -> int:
     if not orders_by_item and sale_transactions:
         logger.info(f"Creating items from {len(sale_transactions)} sale transactions...")
 
+        # Track shipping revenue totals for logging
+        total_shipping_revenue = Decimal(0)
+        total_item_revenue = Decimal(0)
+
         # Track which transactions we've processed to avoid duplicates
         processed_tx_ids = set()
 
@@ -342,12 +346,20 @@ def main() -> int:
             # Note: Finances API doesn't include item titles - manual entry may be needed
             item_title = tx.title or tx.description or "(Enter title manually)"
 
+            # Use item_amount if available (item price without shipping)
+            # Otherwise fall back to total amount
+            sale_price = tx.item_amount.value if tx.item_amount else tx.amount.value
+
+            # Get shipping charged to buyer from transaction
+            shipping_charged = tx.shipping_amount.value if tx.shipping_amount else None
+
             item = SyncedItem(
                 item_id=item_id,
                 title=item_title,
                 status="Sold",
                 sale_date=tx.transaction_date,
-                final_sale_price=tx.amount.value,
+                final_sale_price=sale_price,
+                shipping_charged=shipping_charged,
                 final_value_fee=final_value_fee if final_value_fee else None,
                 fixed_per_order_fee=fixed_fee if fixed_fee else None,
                 promoted_listing_fee=ad_fee if ad_fee else None,
@@ -356,11 +368,17 @@ def main() -> int:
             )
             items_to_sync[item_id] = item
 
+            # Track totals for logging
+            total_item_revenue += sale_price
+            if shipping_charged:
+                total_shipping_revenue += shipping_charged
+
             # Build order_id -> item_id lookup for matching fees later
             if tx.order_id:
                 order_to_item[tx.order_id] = item_id
 
         logger.info(f"Created {len(items_to_sync)} items from transactions")
+        logger.info(f"  Item revenue: ${total_item_revenue:.2f}, Shipping revenue: ${total_shipping_revenue:.2f}")
 
     # Step 4c: Apply promoted listing fees from NON_SALE_CHARGE transactions
     if non_sale_charges:

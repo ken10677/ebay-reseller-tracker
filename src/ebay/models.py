@@ -89,6 +89,8 @@ class Transaction(BaseModel):
     item_id: Optional[str] = Field(None, description="Associated item/listing ID")
     title: Optional[str] = Field(None, description="Item title from line items")
     amount: Amount = Field(..., description="Transaction amount")
+    item_amount: Optional[Amount] = Field(None, description="Item price (without shipping)")
+    shipping_amount: Optional[Amount] = Field(None, description="Shipping charged to buyer")
     fee_amount: Optional[Amount] = Field(None, description="Total fees for this transaction")
     fee_breakdown: list[FeeBreakdown] = Field(
         default_factory=list, description="Detailed fee breakdown"
