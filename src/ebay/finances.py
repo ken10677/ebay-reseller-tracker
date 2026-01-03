@@ -254,6 +254,10 @@ class FinancesClient:
             if not item_id:
                 item_id = first_item.get("lineItemId")
 
+            # Log line item data for SALE transactions to understand structure
+            if tx_type == TransactionType.SALE:
+                logger.debug(f"SALE line item keys: {list(first_item.keys())}")
+
         return Transaction(
             transaction_id=data.get("transactionId", ""),
             transaction_type=tx_type,
