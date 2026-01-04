@@ -19,7 +19,8 @@
       "Bash(\"C:\\Users\\monst\\miniconda3\\python.exe\" -m src.main)",
       "Bash(grep:*)",
       "Bash(paste:*)",
-      "Bash(bc:*)"
+      "Bash(bc:*)",
+      "Bash(python:*)"
     ]
   }
 }

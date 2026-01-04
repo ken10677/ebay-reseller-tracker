@@ -476,6 +476,9 @@ def main() -> int:
     # Step 4d: Apply SHIPPING_LABEL transactions to items
     if shipping_label_txs:
         logger.info(f"Processing {len(shipping_label_txs)} shipping label transactions...")
+        # Log each shipping label for reconciliation
+        for i, tx in enumerate(shipping_label_txs):
+            logger.info(f"  Label {i+1}: ${abs(tx.amount.value):.2f} on {tx.transaction_date.strftime('%Y-%m-%d')} (order: {tx.order_id})")
         shipping_applied = 0
         matched_shipping = Decimal(0)
         unmatched_shipping = Decimal(0)
