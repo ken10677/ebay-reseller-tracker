@@ -159,7 +159,16 @@ class SheetSync:
                 current_values = self.sheets.get_worksheet("Inventory").row_values(existing_row)
                 for col_name, col_idx in self.MANUAL_COLUMN_INDICES.items():
                     if col_idx < len(current_values) and current_values[col_idx]:
-                        setattr(item, col_name, current_values[col_idx])
+                        value = current_values[col_idx]
+                        # Special handling for COGS - convert to Decimal
+                        if col_name == "cogs":
+                            try:
+                                cogs_str = str(value).replace("$", "").replace(",", "").strip()
+                                value = Decimal(cogs_str)
+                            except (ValueError, TypeError, decimal.InvalidOperation):
+                                value = None
+                        if value is not None:
+                            setattr(item, col_name, value)
 
             row_values = self._item_to_row(item, existing_row)
             self.sheets.update_row("Inventory", existing_row, row_values)
