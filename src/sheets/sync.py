@@ -323,8 +323,10 @@ class SheetSync:
                 item.acquisition_source = current[7]
             if len(current) > 8 and current[8]:
                 try:
-                    item.cogs = Decimal(str(current[8]))
-                except (ValueError, TypeError):
+                    # Strip currency symbols and commas from COGS value
+                    cogs_str = str(current[8]).replace("$", "").replace(",", "").strip()
+                    item.cogs = Decimal(cogs_str)
+                except (ValueError, TypeError, decimal.InvalidOperation):
                     pass
             if len(current) > 53 and current[53]:
                 item.notes = current[53]
