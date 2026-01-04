@@ -132,6 +132,7 @@ class EmailNotifier:
 INVENTORY STATUS
 ----------------
 Total Items Sold: {summary.get('sold_items', 0)}
+Refunded: {summary.get('refunded_items', 0)}
 Active Listings: {summary.get('active_listings', 0)}
 Sell-Through Rate: {summary.get('sell_through_rate', 0):.1f}%
 
@@ -233,6 +234,7 @@ eBay Reseller Tracker
         <!-- Quick Stats -->
         <div class="section" style="text-align: center; padding: 15px;">
             <span class="inventory-badge">{summary.get('sold_items', 0)} Items Sold</span>
+            {f'<span class="inventory-badge" style="background: #ffebee; color: #c62828;">{summary.get("refunded_items", 0)} Refunded</span>' if summary.get('refunded_items', 0) > 0 else ''}
             <span class="inventory-badge">{summary.get('active_listings', 0)} Active</span>
             <span class="inventory-badge">{summary.get('sell_through_rate', 0):.0f}% Sell-Through</span>
         </div>

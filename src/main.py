@@ -178,6 +178,8 @@ def main() -> int:
     non_sale_charges = []
     # Track SHIPPING_LABEL transactions separately
     shipping_label_txs = []
+    # Track REFUND transactions
+    refund_txs = []
 
     try:
         for tx in finances.get_transactions(start_date, end_date):
@@ -199,10 +201,13 @@ def main() -> int:
             # Track SHIPPING_LABEL transactions
             elif tx.transaction_type == TransactionType.SHIPPING_LABEL:
                 shipping_label_txs.append(tx)
+            # Track REFUND transactions
+            elif tx.transaction_type == TransactionType.REFUND:
+                refund_txs.append(tx)
     except Exception as e:
         logger.error(f"Failed to fetch transactions: {e}")
 
-    logger.info(f"Found {tx_count} transactions ({len(sale_transactions)} sales, {len(non_sale_charges)} ad fees, {len(shipping_label_txs)} shipping labels)")
+    logger.info(f"Found {tx_count} transactions ({len(sale_transactions)} sales, {len(non_sale_charges)} ad fees, {len(shipping_label_txs)} shipping labels, {len(refund_txs)} refunds)")
     stats["new_transactions"] = tx_count
 
     # Step 3: Get active listings
@@ -538,7 +543,52 @@ def main() -> int:
 
         logger.info(f"Applied {shipping_applied} matched + ${unmatched_shipping:.2f} distributed shipping costs")
 
-    # Step 4e: Enrich items with titles from Browse API (public data)
+    # Step 4e: Process REFUND transactions
+    # Refunds reduce revenue - we need to subtract them from the original sale
+    if refund_txs:
+        logger.info(f"Processing {len(refund_txs)} refund transactions...")
+        total_refunds = Decimal(0)
+        refunds_applied = 0
+
+        for tx in refund_txs:
+            # Refund amount is negative (money going back to buyer)
+            refund_amount = abs(tx.amount.value)
+            total_refunds += refund_amount
+
+            # Try to find the original item to apply the refund to
+            target_item = None
+            item_id = tx.item_id
+            order_id = tx.order_id
+
+            # First try direct item_id match
+            if item_id and item_id in items_to_sync:
+                target_item = items_to_sync[item_id]
+            # Use order_to_item lookup
+            elif order_id and order_id in order_to_item:
+                lookup_item_id = order_to_item[order_id]
+                if lookup_item_id in items_to_sync:
+                    target_item = items_to_sync[lookup_item_id]
+            # Try order_id as key
+            elif order_id and order_id in items_to_sync:
+                target_item = items_to_sync[order_id]
+
+            if target_item:
+                # Subtract refund from final sale price
+                current_price = target_item.final_sale_price or Decimal(0)
+                target_item.final_sale_price = current_price - refund_amount
+                refunds_applied += 1
+                logger.info(f"Applied ${refund_amount:.2f} refund to item {target_item.item_id} (was ${current_price:.2f}, now ${target_item.final_sale_price:.2f})")
+
+                # If fully refunded, mark as refunded
+                if target_item.final_sale_price <= 0:
+                    target_item.status = "Refunded"
+                    target_item.final_sale_price = Decimal(0)
+            else:
+                logger.warning(f"Could not match refund of ${refund_amount:.2f} to any item (order: {order_id})")
+
+        logger.info(f"Processed {len(refund_txs)} refunds totaling ${total_refunds:.2f} ({refunds_applied} applied to items)")
+
+    # Step 4f: Enrich items with titles from Browse API (public data)
     # This helps when we don't have Fulfillment API access for order details
     logger.info("Enriching items with titles from Browse API...")
     try:

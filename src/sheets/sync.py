@@ -528,6 +528,7 @@ class SheetSync:
         total = len(values) - 1  # Exclude header
         active = 0
         sold = 0
+        refunded = 0
 
         # Financial totals
         total_gross_revenue = Decimal(0)
@@ -561,6 +562,9 @@ class SheetSync:
                 cogs = parse_decimal(row, COL["cogs"])
                 if cogs:
                     total_cogs_active += cogs
+            elif status == "Refunded":
+                refunded += 1
+                # Don't count refunded items in revenue totals
             elif status == "Sold":
                 sold += 1
 
@@ -640,6 +644,7 @@ class SheetSync:
             "total_items": total,
             "active_listings": active,
             "sold_items": sold,
+            "refunded_items": refunded,
             "sell_through_rate": (sold / total * 100) if total > 0 else 0,
 
             # Revenue breakdown
