@@ -321,28 +321,13 @@ def main() -> int:
             if not item_id or item_id in items_to_sync:
                 continue
 
-            # Get all transactions for this item to calculate fees
+            # Get all transactions for this item to find related shipping labels
             item_txs = transactions_by_item.get(tx.item_id, []) if tx.item_id else [tx]
 
-            # Calculate fees from related transactions
-            final_value_fee = Decimal(0)
-            fixed_fee = Decimal(0)
-            ad_fee = Decimal(0)
+            # Only look for shipping costs from related transactions
+            # (Marketplace fees come from totalFeeAmount, ad fees from NON_SALE_CHARGE)
             shipping_cost = Decimal(0)
-            other_fees = Decimal(0)
-
             for related_tx in item_txs:
-                for fee in related_tx.fee_breakdown:
-                    fee_val = abs(fee.amount.value)
-                    if "FINAL_VALUE" in fee.fee_type and "FIXED" not in fee.fee_type:
-                        final_value_fee += fee_val
-                    elif "FIXED" in fee.fee_type:
-                        fixed_fee += fee_val
-                    elif "AD_FEE" in fee.fee_type:
-                        ad_fee += fee_val
-                    else:
-                        other_fees += fee_val
-
                 if related_tx.transaction_type == TransactionType.SHIPPING_LABEL:
                     shipping_cost += abs(related_tx.amount.value)
 
@@ -350,24 +335,24 @@ def main() -> int:
             # Note: Finances API doesn't include item titles - manual entry may be needed
             item_title = tx.title or tx.description or "(Enter title manually)"
 
-            # IMPORTANT: The Finances API 'amount' is NET (after fees deducted).
+            # IMPORTANT: The Finances API 'amount' is NET (after marketplace fees deducted).
             # 'fee_basis_amount' is GROSS (item + shipping, before fees).
-            # We need to use fee_basis_amount as the gross sale price.
-            # The sheet formulas will calculate net by subtracting fees.
+            # 'totalFeeAmount' contains the marketplace fees for THIS transaction.
+            #
+            # For accurate reconciliation, we use:
+            # - fee_basis_amount as gross sale (for display)
+            # - totalFeeAmount as the actual fees (NOT parsed from fee_breakdown to avoid double-count)
+            # - Ad fees come separately via NON_SALE_CHARGE transactions
 
-            # Use fee_basis_amount as the total sale price (includes shipping)
-            # If not available, fall back to amount (which is net)
+            # Use fee_basis_amount as gross, totalFeeAmount as marketplace fees
             if tx.fee_basis_amount:
-                # fee_basis is gross (item + shipping)
-                # For now, put the whole amount in final_sale_price since we can't separate
-                # The sheet formula gross_revenue = final_sale_price + shipping_charged
-                # So if we can't separate, just put it all in final_sale_price
                 sale_price = tx.fee_basis_amount.value
-                shipping_charged = None  # Can't separate from Finances API
             else:
-                # Fallback for non-SALE transactions or if fee_basis not present
                 sale_price = tx.amount.value
-                shipping_charged = None
+
+            # Use totalFeeAmount directly instead of parsing fee_breakdown
+            # This avoids double-counting since fee_breakdown contains the same fees
+            marketplace_fee = tx.fee_amount.value if tx.fee_amount else Decimal(0)
 
             item = SyncedItem(
                 item_id=item_id,
@@ -375,12 +360,12 @@ def main() -> int:
                 status="Sold",
                 sale_date=tx.transaction_date,
                 final_sale_price=sale_price,
-                shipping_charged=shipping_charged,
-                final_value_fee=final_value_fee if final_value_fee else None,
-                fixed_per_order_fee=fixed_fee if fixed_fee else None,
-                promoted_listing_fee=ad_fee if ad_fee else None,
+                shipping_charged=None,  # Can't separate from Finances API
+                final_value_fee=marketplace_fee if marketplace_fee else None,  # Total marketplace fees
+                fixed_per_order_fee=None,  # Included in marketplace_fee
+                promoted_listing_fee=None,  # Will be applied later from NON_SALE_CHARGE transactions
                 actual_shipping_cost=shipping_cost if shipping_cost else None,
-                other_fees=other_fees if other_fees else None,
+                other_fees=None,  # Included in marketplace_fee
             )
             items_to_sync[item_id] = item
 
