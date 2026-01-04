@@ -596,26 +596,55 @@ def main() -> int:
     api_net_amount = sum(tx.amount.value for tx in sale_transactions)
     api_total_fees = sum(tx.fee_amount.value for tx in sale_transactions if tx.fee_amount)
     api_refunds = sum(abs(tx.amount.value) for tx in refund_txs)
+    api_refund_fee_basis = sum(tx.fee_basis_amount.value for tx in refund_txs if tx.fee_basis_amount)
     api_shipping_labels = sum(abs(tx.amount.value) for tx in shipping_label_txs)
     api_ad_fees = sum(abs(tx.amount.value) for tx in non_sale_charges)
 
-    logger.info(f"From SALE transactions:")
+    logger.info(f"From SALE transactions ({len(sale_transactions)} total):")
     logger.info(f"  Gross (feeBasis sum): ${api_gross_sales:.2f}")
     logger.info(f"  Net (amount sum): ${api_net_amount:.2f}")
     logger.info(f"  Fees (totalFeeAmount sum): ${api_total_fees:.2f}")
     logger.info(f"  Implied fees (gross - net): ${api_gross_sales - api_net_amount:.2f}")
+
+    logger.info(f"From REFUND transactions ({len(refund_txs)} total):")
+    logger.info(f"  Refund amounts (to buyer): ${api_refunds:.2f}")
+    logger.info(f"  Refund feeBasis: ${api_refund_fee_basis:.2f}")
+
     logger.info(f"From other transactions:")
-    logger.info(f"  Refunds: ${api_refunds:.2f}")
-    logger.info(f"  Shipping labels: ${api_shipping_labels:.2f}")
-    logger.info(f"  Ad fees (NON_SALE_CHARGE): ${api_ad_fees:.2f}")
-    logger.info("")
+    logger.info(f"  Shipping labels ({len(shipping_label_txs)}): ${api_shipping_labels:.2f}")
+    logger.info(f"  Ad fees ({len(non_sale_charges)}): ${api_ad_fees:.2f}")
+
     # Credits from CREDIT transactions (if any)
     api_credits = sum(tx.amount.value for tx in credit_txs)
     # Fee credits from REFUND transactions (eBay returns fees when you refund)
     api_refund_fee_credits = sum(tx.fee_amount.value for tx in refund_txs if tx.fee_amount)
 
     logger.info(f"  Fee credits from refunds: ${api_refund_fee_credits:.2f}")
-    logger.info(f"  Credits (CREDIT tx): ${api_credits:.2f}")
+    logger.info(f"  Credits (CREDIT tx, {len(credit_txs)}): ${api_credits:.2f}")
+    logger.info("")
+
+    # eBay's report breakdown for comparison:
+    # Total sales: $1,612.32 (includes $129.15 shipping, $97.23 taxes)
+    # Selling costs: $487.75 ($373.80 fees + $113.95 shipping labels)
+    # Net sales: $1,027.34
+    #
+    # Let's try to match their calculation...
+    # Their "fees" of $373.80 = our marketplace fees ($237.57) + ad fees ($155.48) - refund fee credits ($11.99) = $381.06
+    # That's $7.26 more than eBay's $373.80...
+
+    logger.info("Comparing to eBay's report:")
+    logger.info(f"  eBay Total Sales: $1,612.32")
+    logger.info(f"  Our Gross (feeBasis): ${api_gross_sales:.2f}")
+    logger.info(f"  Difference in gross: ${api_gross_sales - Decimal('1612.32'):.2f}")
+    logger.info("")
+    logger.info(f"  eBay Fees: $373.80")
+    our_net_fees = api_total_fees + api_ad_fees - api_refund_fee_credits
+    logger.info(f"  Our net fees (marketplace + ad - refund credits): ${our_net_fees:.2f}")
+    logger.info(f"  Difference in fees: ${our_net_fees - Decimal('373.80'):.2f}")
+    logger.info("")
+    logger.info(f"  eBay Shipping Labels: $113.95")
+    logger.info(f"  Our Shipping Labels: ${api_shipping_labels:.2f}")
+    logger.info(f"  Difference in shipping: ${api_shipping_labels - Decimal('113.95'):.2f}")
     logger.info("")
 
     api_net_from_ebay = api_net_amount - api_refunds - api_shipping_labels - api_ad_fees + api_credits + api_refund_fee_credits
@@ -624,7 +653,7 @@ def main() -> int:
     logger.info(f"  = ${api_net_amount:.2f} - ${api_refunds:.2f} - ${api_shipping_labels:.2f} - ${api_ad_fees:.2f} + ${api_credits:.2f} + ${api_refund_fee_credits:.2f}")
     logger.info(f"  = ${api_net_from_ebay:.2f}")
     logger.info(f"")
-    logger.info(f"Compare to eBay's Net Sales: $1,027.34")
+    logger.info(f"eBay's Net Sales: $1,027.34")
     logger.info(f"Difference: ${api_net_from_ebay - Decimal('1027.34'):.2f}")
     logger.info("=" * 50)
     logger.info("")
