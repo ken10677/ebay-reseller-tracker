@@ -588,6 +588,37 @@ def main() -> int:
 
         logger.info(f"Processed {len(refund_txs)} refunds totaling ${total_refunds:.2f} ({refunds_applied} applied to items)")
 
+    # Reconciliation summary - calculate directly from API transaction data
+    logger.info("")
+    logger.info("=" * 50)
+    logger.info("RECONCILIATION CHECK (from API data)")
+    logger.info("=" * 50)
+
+    # Sum up directly from transactions for verification
+    api_gross_sales = sum(tx.fee_basis_amount.value for tx in sale_transactions if tx.fee_basis_amount)
+    api_net_amount = sum(tx.amount.value for tx in sale_transactions)
+    api_total_fees = sum(tx.fee_amount.value for tx in sale_transactions if tx.fee_amount)
+    api_refunds = sum(abs(tx.amount.value) for tx in refund_txs)
+    api_shipping_labels = sum(abs(tx.amount.value) for tx in shipping_label_txs)
+    api_ad_fees = sum(abs(tx.amount.value) for tx in non_sale_charges)
+
+    logger.info(f"From SALE transactions:")
+    logger.info(f"  Gross (feeBasis sum): ${api_gross_sales:.2f}")
+    logger.info(f"  Net (amount sum): ${api_net_amount:.2f}")
+    logger.info(f"  Fees (totalFeeAmount sum): ${api_total_fees:.2f}")
+    logger.info(f"  Implied fees (gross - net): ${api_gross_sales - api_net_amount:.2f}")
+    logger.info(f"From other transactions:")
+    logger.info(f"  Refunds: ${api_refunds:.2f}")
+    logger.info(f"  Shipping labels: ${api_shipping_labels:.2f}")
+    logger.info(f"  Ad fees (NON_SALE_CHARGE): ${api_ad_fees:.2f}")
+    logger.info("")
+    logger.info(f"Calculated Net from eBay:")
+    logger.info(f"  = Net amount - Refunds - Shipping Labels")
+    logger.info(f"  = ${api_net_amount:.2f} - ${api_refunds:.2f} - ${api_shipping_labels:.2f}")
+    logger.info(f"  = ${api_net_amount - api_refunds - api_shipping_labels:.2f}")
+    logger.info("=" * 50)
+    logger.info("")
+
     # Step 4f: Enrich items with titles from Browse API (public data)
     # This helps when we don't have Fulfillment API access for order details
     logger.info("Enriching items with titles from Browse API...")
