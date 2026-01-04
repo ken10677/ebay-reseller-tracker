@@ -157,7 +157,11 @@ class FinancesClient:
             amount_val = data.get("amount", {}).get("value", "0")
             fee_basis_val = data.get("totalFeeBasisAmount", {}).get("value", "0") if "totalFeeBasisAmount" in data else "N/A"
             total_fee_val = data.get("totalFeeAmount", {}).get("value", "0") if "totalFeeAmount" in data else "N/A"
-            logger.info(f"{tx_type}: amount=${amount_val}, feeBasis=${fee_basis_val}, totalFee=${total_fee_val}")
+            # For refunds, also check for fee credit
+            fee_credit = "N/A"
+            if tx_type == "REFUND" and "totalFeeAmount" in data:
+                fee_credit = data["totalFeeAmount"].get("value", "0")
+            logger.info(f"{tx_type}: amount=${amount_val}, feeBasis=${fee_basis_val}, totalFee/Credit=${total_fee_val}")
 
         # Parse amount (net to seller after fees)
         amount_data = data.get("amount", {})
