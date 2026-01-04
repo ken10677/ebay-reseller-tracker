@@ -180,6 +180,10 @@ def main() -> int:
     shipping_label_txs = []
     # Track REFUND transactions
     refund_txs = []
+    # Track CREDIT transactions (fee refunds when orders are refunded)
+    credit_txs = []
+    # Track any other transaction types for debugging
+    other_txs = []
 
     try:
         for tx in finances.get_transactions(start_date, end_date):
@@ -204,10 +208,18 @@ def main() -> int:
             # Track REFUND transactions
             elif tx.transaction_type == TransactionType.REFUND:
                 refund_txs.append(tx)
+            # Track CREDIT transactions (fee refunds)
+            elif tx.transaction_type == TransactionType.CREDIT:
+                credit_txs.append(tx)
+            else:
+                other_txs.append(tx)
     except Exception as e:
         logger.error(f"Failed to fetch transactions: {e}")
 
-    logger.info(f"Found {tx_count} transactions ({len(sale_transactions)} sales, {len(non_sale_charges)} ad fees, {len(shipping_label_txs)} shipping labels, {len(refund_txs)} refunds)")
+    logger.info(f"Found {tx_count} transactions ({len(sale_transactions)} sales, {len(non_sale_charges)} ad fees, {len(shipping_label_txs)} shipping labels, {len(refund_txs)} refunds, {len(credit_txs)} credits)")
+    if other_txs:
+        other_types = set(tx.transaction_type for tx in other_txs)
+        logger.info(f"  Other transaction types: {other_types}")
     stats["new_transactions"] = tx_count
 
     # Step 3: Get active listings
@@ -597,10 +609,13 @@ def main() -> int:
     logger.info(f"  Shipping labels: ${api_shipping_labels:.2f}")
     logger.info(f"  Ad fees (NON_SALE_CHARGE): ${api_ad_fees:.2f}")
     logger.info("")
-    api_net_from_ebay = api_net_amount - api_refunds - api_shipping_labels - api_ad_fees
+    # Credits are positive (fee refunds when orders are refunded)
+    api_credits = sum(tx.amount.value for tx in credit_txs)
+
+    api_net_from_ebay = api_net_amount - api_refunds - api_shipping_labels - api_ad_fees + api_credits
     logger.info(f"Calculated Net from eBay:")
-    logger.info(f"  = Net amount - Refunds - Shipping Labels - Ad Fees")
-    logger.info(f"  = ${api_net_amount:.2f} - ${api_refunds:.2f} - ${api_shipping_labels:.2f} - ${api_ad_fees:.2f}")
+    logger.info(f"  = Net amount - Refunds - Shipping Labels - Ad Fees + Credits")
+    logger.info(f"  = ${api_net_amount:.2f} - ${api_refunds:.2f} - ${api_shipping_labels:.2f} - ${api_ad_fees:.2f} + ${api_credits:.2f}")
     logger.info(f"  = ${api_net_from_ebay:.2f}")
     logger.info(f"")
     logger.info(f"Compare to eBay's Net Sales: $1,027.34")
