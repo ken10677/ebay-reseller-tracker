@@ -597,10 +597,14 @@ def main() -> int:
     logger.info(f"  Shipping labels: ${api_shipping_labels:.2f}")
     logger.info(f"  Ad fees (NON_SALE_CHARGE): ${api_ad_fees:.2f}")
     logger.info("")
+    api_net_from_ebay = api_net_amount - api_refunds - api_shipping_labels - api_ad_fees
     logger.info(f"Calculated Net from eBay:")
-    logger.info(f"  = Net amount - Refunds - Shipping Labels")
-    logger.info(f"  = ${api_net_amount:.2f} - ${api_refunds:.2f} - ${api_shipping_labels:.2f}")
-    logger.info(f"  = ${api_net_amount - api_refunds - api_shipping_labels:.2f}")
+    logger.info(f"  = Net amount - Refunds - Shipping Labels - Ad Fees")
+    logger.info(f"  = ${api_net_amount:.2f} - ${api_refunds:.2f} - ${api_shipping_labels:.2f} - ${api_ad_fees:.2f}")
+    logger.info(f"  = ${api_net_from_ebay:.2f}")
+    logger.info(f"")
+    logger.info(f"Compare to eBay's Net Sales: $1,027.34")
+    logger.info(f"Difference: ${api_net_from_ebay - Decimal('1027.34'):.2f}")
     logger.info("=" * 50)
     logger.info("")
 
