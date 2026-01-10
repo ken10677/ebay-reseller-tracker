@@ -20,7 +20,8 @@
       "Bash(grep:*)",
       "Bash(paste:*)",
       "Bash(bc:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(git mv:*)"
     ]
   }
 }
