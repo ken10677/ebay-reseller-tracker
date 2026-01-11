@@ -223,8 +223,11 @@ def main() -> int:
     stats["new_transactions"] = tx_count
 
     # Step 3: Get active listings
-    logger.info("Fetching active listings...")
+    # Note: This requires Trading API (sell.inventory scope) which may not be available
+    # If not available, active listings should be added manually to the spreadsheet
+    logger.info("Checking for active listings...")
     items_to_sync: dict[str, SyncedItem] = {}
+    active_listings_fetched = False
 
     try:
         # Get from Trading API if available (has more details)
@@ -237,26 +240,30 @@ def main() -> int:
                 item = sync.update_item_from_listing(listing)
                 items_to_sync[item.item_id] = item
                 stats["updated_listings"] += 1
+            active_listings_fetched = True
 
-        # Also get from Inventory API for any missing items
-        for offer in inventory.get_offers():
-            if offer.item_id and offer.item_id not in items_to_sync:
-                # Create basic item from offer
-                item = SyncedItem(
-                    item_id=offer.item_id,
-                    title=offer.sku,  # May need to get title elsewhere
-                    list_price=offer.price.value,
-                    listing_format="Fixed Price" if offer.format == "FIXED_PRICE" else "Auction",
-                    status="Active" if offer.status == "ACTIVE" else "Ended",
-                    quantity_listed=offer.quantity,
-                    quantity_sold=offer.quantity_sold,
-                    list_date=offer.listing_start_date,
-                    end_date=offer.listing_end_date,
-                )
-                items_to_sync[item.item_id] = item
+        # Also try Inventory API for any missing items
+        try:
+            for offer in inventory.get_offers():
+                if offer.item_id and offer.item_id not in items_to_sync:
+                    item = SyncedItem(
+                        item_id=offer.item_id,
+                        title=offer.sku,
+                        list_price=offer.price.value,
+                        status="Active" if offer.status == "ACTIVE" else "Ended",
+                        list_date=offer.listing_start_date,
+                    )
+                    items_to_sync[item.item_id] = item
+            active_listings_fetched = True
+        except Exception as inv_error:
+            # Inventory API requires sell.inventory scope - may not be available
+            logger.debug(f"Inventory API not available: {inv_error}")
 
     except Exception as e:
-        logger.error(f"Failed to fetch listings: {e}")
+        logger.debug(f"Could not fetch listings from APIs: {e}")
+
+    if not active_listings_fetched:
+        logger.info("Active listing APIs not available - add active items manually to sheet")
 
     # Step 4: Update items with order/transaction data
     # Handle multiple orders per item by aggregating data

@@ -1,7 +1,6 @@
 """Sync logic for eBay data to Google Sheets."""
 
 import decimal
-import statistics
 from datetime import datetime, date
 from decimal import Decimal
 from typing import Any, Optional
@@ -37,12 +36,12 @@ class SheetSync:
         "notes",
     ]
 
-    # Column indices (0-indexed) for manual columns
+    # Column indices (0-indexed) for manual columns - updated for simplified structure
     MANUAL_COLUMN_INDICES = {
-        "acquisition_date": 6,
-        "acquisition_source": 7,
-        "cogs": 8,
-        "notes": 53,
+        "acquisition_date": 3,   # Column D
+        "acquisition_source": 4, # Column E
+        "cogs": 5,               # Column F
+        "notes": 17,             # Column R
     }
 
     def __init__(
@@ -192,7 +191,7 @@ class SheetSync:
             row: Row number for formulas
 
         Returns:
-            List of cell values
+            List of cell values (18 columns for simplified structure)
         """
         formulas = DashboardFormulas.get_inventory_row_formulas(row)
         cols = DashboardFormulas.INV_COLS
@@ -207,65 +206,37 @@ class SheetSync:
                 return float(d)
             return ""
 
-        def fmt_bool(b: bool) -> str:
-            return "TRUE" if b else "FALSE"
+        # Combine all eBay fees into one field
+        ebay_fees = Decimal(0)
+        if item.final_value_fee:
+            ebay_fees += item.final_value_fee
+        if item.fixed_per_order_fee:
+            ebay_fees += item.fixed_per_order_fee
+        if item.international_fee:
+            ebay_fees += item.international_fee
+        if item.other_fees:
+            ebay_fees += item.other_fees
 
-        # Build row in column order
+        # Build row in column order (18 columns: A-R)
         row_values = [
-            item.item_id,
-            item.title,
-            item.category_id or "",
-            item.category_name or "",
-            item.condition or "",
-            item.brand or "",
-            item.acquisition_date or "",
-            item.acquisition_source or "",
-            fmt_decimal(item.cogs) if item.cogs else "",
-            fmt_date(item.list_date),
-            fmt_date(item.end_date),
-            fmt_date(item.sale_date),
-            formulas.get(cols["days_listed"], ""),  # Formula
-            item.status,
-            fmt_decimal(item.list_price),
-            fmt_bool(item.best_offer_enabled),
-            fmt_decimal(item.best_offer_auto_accept),
-            fmt_decimal(item.best_offer_minimum),
-            item.offers_received,
-            fmt_decimal(item.final_sale_price),
-            fmt_decimal(item.shipping_charged),
-            fmt_decimal(item.actual_shipping_cost),
-            formulas.get(cols["shipping_profit_loss"], ""),  # Formula
-            fmt_decimal(item.final_value_fee),
-            fmt_decimal(item.fixed_per_order_fee),
-            fmt_decimal(item.promoted_listing_fee),
-            fmt_decimal(item.international_fee),
-            fmt_decimal(item.other_fees),
-            formulas.get(cols["total_fees"], ""),  # Formula
-            formulas.get(cols["gross_revenue"], ""),  # Formula
-            formulas.get(cols["net_from_ebay"], ""),  # Formula
-            formulas.get(cols["net_profit"], ""),  # Formula
-            formulas.get(cols["roi_percent"], ""),  # Formula
-            formulas.get(cols["profit_margin_percent"], ""),  # Formula
-            item.views,
-            item.watchers,
-            formulas.get(cols["view_to_sale_rate"], ""),  # Formula
-            item.questions_asked,
-            item.description_length,
-            item.photo_count,
-            item.item_specifics_count,
-            fmt_bool(item.free_shipping),
-            item.shipping_service or "",
-            fmt_bool(item.returns_accepted),
-            item.return_period or "",
-            item.listing_format,
-            fmt_bool(item.promoted_listing),
-            fmt_decimal(item.promoted_listing_rate),
-            item.times_relisted,
-            item.original_item_id or "",
-            item.quantity_listed,
-            item.quantity_sold,
-            item.quantity_available,
-            item.notes or "",
+            item.item_id,                                    # A: Item ID
+            item.title,                                      # B: Title
+            item.status,                                     # C: Status
+            item.acquisition_date or "",                     # D: Acquisition Date
+            item.acquisition_source or "",                   # E: Acquisition Source
+            fmt_decimal(item.cogs) if item.cogs else "",     # F: COGS
+            fmt_date(item.list_date),                        # G: List Date
+            fmt_date(item.sale_date),                        # H: Sale Date
+            formulas.get(cols["days_listed"], ""),           # I: Days Listed (formula)
+            fmt_decimal(item.list_price),                    # J: List Price
+            fmt_decimal(item.final_sale_price),              # K: Final Sale Price
+            fmt_decimal(item.actual_shipping_cost),          # L: Shipping Cost
+            fmt_decimal(ebay_fees) if ebay_fees else "",     # M: eBay Fees
+            fmt_decimal(item.promoted_listing_fee),          # N: Ad Fees
+            formulas.get(cols["total_costs"], ""),           # O: Total Costs (formula)
+            formulas.get(cols["net_from_ebay"], ""),         # P: Net from eBay (formula)
+            formulas.get(cols["net_profit"], ""),            # Q: Net Profit (formula)
+            item.notes or "",                                # R: Notes
         ]
 
         return row_values
@@ -322,23 +293,29 @@ class SheetSync:
         existing_row = self._item_id_to_row.get(item_id)
         item = SyncedItem(item_id=item_id, title=line_item.title)
 
+        # Column indices for simplified structure (manual columns)
+        COL_ACQ_DATE = 3     # D - Acquisition Date
+        COL_ACQ_SOURCE = 4   # E - Acquisition Source
+        COL_COGS = 5         # F - COGS
+        COL_NOTES = 17       # R - Notes
+
         if existing_row:
             # Load existing data
             current = self.sheets.get_worksheet("Inventory").row_values(existing_row)
             # Preserve certain fields
-            if len(current) > 6 and current[6]:
-                item.acquisition_date = current[6]
-            if len(current) > 7 and current[7]:
-                item.acquisition_source = current[7]
-            if len(current) > 8 and current[8]:
+            if len(current) > COL_ACQ_DATE and current[COL_ACQ_DATE]:
+                item.acquisition_date = current[COL_ACQ_DATE]
+            if len(current) > COL_ACQ_SOURCE and current[COL_ACQ_SOURCE]:
+                item.acquisition_source = current[COL_ACQ_SOURCE]
+            if len(current) > COL_COGS and current[COL_COGS]:
                 try:
                     # Strip currency symbols and commas from COGS value
-                    cogs_str = str(current[8]).replace("$", "").replace(",", "").strip()
+                    cogs_str = str(current[COL_COGS]).replace("$", "").replace(",", "").strip()
                     item.cogs = Decimal(cogs_str)
                 except (ValueError, TypeError, decimal.InvalidOperation):
                     pass
-            if len(current) > 53 and current[53]:
-                item.notes = current[53]
+            if len(current) > COL_NOTES and current[COL_NOTES]:
+                item.notes = current[COL_NOTES]
 
         # Update from order
         item.status = "Sold"
@@ -432,6 +409,13 @@ class SheetSync:
         # Get current values from Inventory
         values = self.sheets.get_all_values("Inventory")
 
+        # Column indices for simplified structure
+        COL_STATUS = 2       # C - Status
+        COL_COGS = 5         # F - COGS
+        COL_SALE_DATE = 7    # H - Sale Date
+        COL_SALE_PRICE = 10  # K - Final Sale Price
+        COL_NET_PROFIT = 16  # Q - Net Profit
+
         active_count = 0
         total_value = Decimal(0)
         sold_today = 0
@@ -439,33 +423,33 @@ class SheetSync:
         profit_today = Decimal(0)
 
         for row in values[1:]:  # Skip header
-            if len(row) < 14:
+            if len(row) < 3:
                 continue
 
-            status = row[13] if len(row) > 13 else ""
-            cogs_str = row[8] if len(row) > 8 else ""
-            sale_date = row[11] if len(row) > 11 else ""
-            gross_str = row[29] if len(row) > 29 else ""
-            profit_str = row[31] if len(row) > 31 else ""
+            status = row[COL_STATUS] if len(row) > COL_STATUS else ""
+            cogs_str = row[COL_COGS] if len(row) > COL_COGS else ""
+            sale_date = row[COL_SALE_DATE] if len(row) > COL_SALE_DATE else ""
+            sale_price_str = row[COL_SALE_PRICE] if len(row) > COL_SALE_PRICE else ""
+            profit_str = row[COL_NET_PROFIT] if len(row) > COL_NET_PROFIT else ""
 
             if status == "Active":
                 active_count += 1
                 if cogs_str:
                     try:
-                        total_value += Decimal(cogs_str)
+                        total_value += Decimal(str(cogs_str).replace("$", "").replace(",", ""))
                     except (ValueError, TypeError):
                         pass
 
             if sale_date == today:
                 sold_today += 1
-                if gross_str:
+                if sale_price_str:
                     try:
-                        revenue_today += Decimal(gross_str)
+                        revenue_today += Decimal(str(sale_price_str).replace("$", "").replace(",", ""))
                     except (ValueError, TypeError):
                         pass
                 if profit_str:
                     try:
-                        profit_today += Decimal(profit_str)
+                        profit_today += Decimal(str(profit_str).replace("$", "").replace(",", ""))
                     except (ValueError, TypeError):
                         pass
 
@@ -490,29 +474,20 @@ class SheetSync:
         Returns:
             Dict with detailed summary statistics including:
             - Item counts (total, sold, active)
-            - Financial totals (revenue, fees breakdown, COGS, profit)
-            - ROI statistics (median and average)
-            - Shipping data
+            - Financial totals (revenue, fees, COGS, profit)
         """
         values = self.sheets.get_all_values("Inventory")
 
-        # Column indices (0-indexed) based on formulas.py
+        # Column indices (0-indexed) based on simplified structure
         COL = {
-            "cogs": 8,           # I - COGS
-            "status": 13,        # N - Status
-            "final_sale_price": 19,  # T - Final Sale Price
-            "shipping_charged": 20,   # U - Shipping Charged
-            "actual_shipping_cost": 21,  # V - Actual Shipping Cost
-            "final_value_fee": 23,    # X - Final Value Fee
-            "fixed_per_order_fee": 24,  # Y - Fixed Per-Order Fee
-            "promoted_listing_fee": 25,  # Z - Promoted Listing Fee
-            "international_fee": 26,  # AA - International Fee
-            "other_fees": 27,    # AB - Other Fees
-            "total_fees": 28,    # AC - Total Fees (formula)
-            "gross_revenue": 29,  # AD - Gross Revenue (formula)
-            "net_from_ebay": 30,  # AE - Net from eBay (formula: Revenue - Fees - Shipping)
-            "net_profit": 31,    # AF - Net Profit (formula: Net from eBay - COGS)
-            "roi_percent": 32,   # AG - ROI % (formula)
+            "status": 2,              # C - Status
+            "cogs": 5,                # F - COGS
+            "final_sale_price": 10,   # K - Final Sale Price
+            "actual_shipping_cost": 11,  # L - Shipping Cost
+            "ebay_fees": 12,          # M - eBay Fees
+            "ad_fees": 13,            # N - Ad Fees
+            "net_from_ebay": 15,      # P - Net from eBay (formula)
+            "net_profit": 16,         # Q - Net Profit (formula)
         }
 
         def parse_decimal(row: list, col_idx: int) -> Optional[Decimal]:
@@ -531,113 +506,73 @@ class SheetSync:
         refunded = 0
 
         # Financial totals
-        total_gross_revenue = Decimal(0)
         total_final_sale_price = Decimal(0)
-        total_shipping_charged = Decimal(0)
         total_shipping_cost = Decimal(0)
-        total_cogs_sold = Decimal(0)  # COGS for sold items
-        total_cogs_active = Decimal(0)  # COGS for active inventory
-        total_final_value_fee = Decimal(0)
-        total_fixed_fee = Decimal(0)
-        total_promoted_fee = Decimal(0)
-        total_international_fee = Decimal(0)
-        total_other_fees = Decimal(0)
-        total_net_from_ebay = Decimal(0)  # Revenue - Fees - Shipping (no COGS)
+        total_cogs_sold = Decimal(0)
+        total_cogs_active = Decimal(0)
+        total_ebay_fees = Decimal(0)
+        total_ad_fees = Decimal(0)
+        total_net_from_ebay = Decimal(0)
         total_net_profit = Decimal(0)
 
-        # ROI tracking for median/average
-        roi_values = []
         items_with_cogs = 0
         items_with_profit = 0
 
         for row in values[1:]:
-            if len(row) < 14:
+            if len(row) < 3:
                 continue
 
             status = row[COL["status"]] if COL["status"] < len(row) else ""
 
             if status == "Active":
                 active += 1
-                # Count active inventory value
                 cogs = parse_decimal(row, COL["cogs"])
                 if cogs:
                     total_cogs_active += cogs
             elif status == "Refunded":
                 refunded += 1
-                # Don't count refunded items in revenue totals
             elif status == "Sold":
                 sold += 1
 
-                # Parse all financial fields
                 final_sale = parse_decimal(row, COL["final_sale_price"])
-                shipping_charged = parse_decimal(row, COL["shipping_charged"])
                 shipping_cost = parse_decimal(row, COL["actual_shipping_cost"])
                 cogs = parse_decimal(row, COL["cogs"])
-                fvf = parse_decimal(row, COL["final_value_fee"])
-                fixed_fee = parse_decimal(row, COL["fixed_per_order_fee"])
-                promo_fee = parse_decimal(row, COL["promoted_listing_fee"])
-                intl_fee = parse_decimal(row, COL["international_fee"])
-                other_fee = parse_decimal(row, COL["other_fees"])
-                gross_rev = parse_decimal(row, COL["gross_revenue"])
+                ebay_fees = parse_decimal(row, COL["ebay_fees"])
+                ad_fees = parse_decimal(row, COL["ad_fees"])
                 net_ebay = parse_decimal(row, COL["net_from_ebay"])
                 net_profit = parse_decimal(row, COL["net_profit"])
-                roi = parse_decimal(row, COL["roi_percent"])
 
-                # Accumulate totals
                 if final_sale:
                     total_final_sale_price += final_sale
-                if shipping_charged:
-                    total_shipping_charged += shipping_charged
                 if shipping_cost:
                     total_shipping_cost += shipping_cost
                 if cogs:
                     total_cogs_sold += cogs
                     items_with_cogs += 1
-                if fvf:
-                    total_final_value_fee += fvf
-                if fixed_fee:
-                    total_fixed_fee += fixed_fee
-                if promo_fee:
-                    total_promoted_fee += promo_fee
-                if intl_fee:
-                    total_international_fee += intl_fee
-                if other_fee:
-                    total_other_fees += other_fee
-                if gross_rev:
-                    total_gross_revenue += gross_rev
+                if ebay_fees:
+                    total_ebay_fees += ebay_fees
+                if ad_fees:
+                    total_ad_fees += ad_fees
                 if net_ebay:
                     total_net_from_ebay += net_ebay
                 if net_profit:
                     total_net_profit += net_profit
                     items_with_profit += 1
-                if roi is not None:
-                    roi_values.append(float(roi))
-
-        # Calculate total fees
-        total_all_fees = (
-            total_final_value_fee + total_fixed_fee + total_promoted_fee +
-            total_international_fee + total_other_fees
-        )
-
-        # Calculate shipping profit/loss
-        shipping_profit_loss = total_shipping_charged - total_shipping_cost
-
-        # Calculate ROI statistics
-        median_roi = statistics.median(roi_values) if roi_values else 0
-        average_roi = statistics.mean(roi_values) if roi_values else 0
 
         # Get expenses from Expenses sheet
         total_expenses = Decimal(0)
         try:
             expense_values = self.sheets.get_all_values("Expenses")
-            for row in expense_values[1:]:  # Skip header
-                if len(row) > 5 and row[5]:  # Amount column
+            for row in expense_values[1:]:
+                if len(row) > 5 and row[5]:
                     try:
                         total_expenses += Decimal(str(row[5]).replace("$", "").replace(",", ""))
                     except (ValueError, TypeError):
                         pass
         except Exception:
-            pass  # Expenses sheet might not exist
+            pass
+
+        total_fees = total_ebay_fees + total_ad_fees
 
         return {
             # Item counts
@@ -647,39 +582,31 @@ class SheetSync:
             "refunded_items": refunded,
             "sell_through_rate": (sold / total * 100) if total > 0 else 0,
 
-            # Revenue breakdown
-            "total_gross_revenue": float(total_gross_revenue),
+            # Revenue
             "total_final_sale_price": float(total_final_sale_price),
-            "total_shipping_charged": float(total_shipping_charged),
 
-            # Cost breakdown
+            # Costs
             "total_cogs_sold": float(total_cogs_sold),
             "total_cogs_active": float(total_cogs_active),
             "total_shipping_cost": float(total_shipping_cost),
-            "shipping_profit_loss": float(shipping_profit_loss),
 
-            # Fees breakdown
-            "total_fees": float(total_all_fees),
-            "total_final_value_fee": float(total_final_value_fee),
-            "total_fixed_fee": float(total_fixed_fee),
-            "total_promoted_fee": float(total_promoted_fee),
-            "total_international_fee": float(total_international_fee),
-            "total_other_fees": float(total_other_fees),
+            # Fees
+            "total_fees": float(total_fees),
+            "total_ebay_fees": float(total_ebay_fees),
+            "total_ad_fees": float(total_ad_fees),
 
             # Other expenses
             "total_expenses": float(total_expenses),
 
             # Profit
-            "total_net_from_ebay": float(total_net_from_ebay),  # Revenue - Fees - Shipping (no COGS)
+            "total_net_from_ebay": float(total_net_from_ebay),
             "total_net_profit": float(total_net_profit),
 
-            # ROI statistics
-            "median_roi": median_roi,
-            "average_roi": average_roi,
+            # Stats
             "items_with_cogs": items_with_cogs,
             "items_with_profit": items_with_profit,
 
             # Legacy fields for compatibility
-            "total_revenue": float(total_gross_revenue),
+            "total_revenue": float(total_final_sale_price),
             "total_profit": float(total_net_profit),
         }

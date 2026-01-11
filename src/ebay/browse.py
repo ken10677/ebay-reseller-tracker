@@ -1,10 +1,12 @@
 """eBay Browse API client for fetching public item data."""
 
 import requests
-from typing import Optional
+from typing import Optional, Generator
+from decimal import Decimal
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from src.ebay.auth import EbayAuth
+from src.ebay.models import SyncedItem
 from src.utils.logging import get_logger
 
 logger = get_logger("ebay.browse")
