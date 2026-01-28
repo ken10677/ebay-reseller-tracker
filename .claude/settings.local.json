@@ -21,7 +21,10 @@
       "Bash(paste:*)",
       "Bash(bc:*)",
       "Bash(python:*)",
-      "Bash(git mv:*)"
+      "Bash(git mv:*)",
+      "Bash(\"C:\\\\Users\\\\monst\\\\miniconda3\\\\python.exe\":*)",
+      "Bash(\"C:\\\\Users\\\\monst\\\\miniconda3\\\\python.exe\" -c \"print\\(''Testing sync...''\\); from src.sheets.sync import SheetSync; print\\(''Sync module OK''\\)\")",
+      "Bash(\"C:\\\\Users\\\\monst\\\\miniconda3\\\\python.exe\" -c \"print\\(''Testing main...''\\); from src.main import main; print\\(''Main module OK''\\)\")"
     ]
   }
 }
